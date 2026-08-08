@@ -87,13 +87,141 @@ delete their own rows.
 
 ## 4. Expose the backend with Cloudflare Tunnel
 
-In a second terminal:
+You need `cloudflared` — Cloudflare's tunnel client — to give your
+friends' phones an HTTPS URL that reaches PocketBase on your PC.
+
+### 4a. Install `cloudflared`
+
+**Windows (winget, recommended):**
+
+```powershell
+winget install --id Cloudflare.cloudflared
+```
+
+**Windows (Scoop / Chocolatey alternative):**
+
+```powershell
+scoop install cloudflared
+# or
+choco install cloudflared
+```
+
+**macOS:**
 
 ```bash
+brew install cloudflared
+```
+
+**Linux (Debian / Ubuntu):**
+
+```bash
+# Add Cloudflare's package repo (one-time)
+sudo mkdir -p --mode=0755 /usr/share/keyrings
+curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | sudo tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null
+echo "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/cloudflared.list
+
+sudo apt-get update
+sudo apt-get install cloudflared
+```
+
+**Any OS (manual):** download the binary from
+https://github.com/cloudflare/cloudflared/releases and add it to your
+PATH.
+
+Verify:
+
+```powershell
+cloudflared --version
+```
+
+> **Windows: "'cloudflared' is not recognized" right after `winget install`?**
+> `winget` updates the system PATH but your current terminal already
+> cached the old one. Fix without rebooting — reload PATH in the current
+> session:
+>
+> ```powershell
+> $env:Path = [System.Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [System.Environment]::GetEnvironmentVariable('Path','User')
+> cloudflared --version
+> ```
+>
+> Or just **close and reopen the terminal** (VS Code terminals need a
+> fresh terminal, not just a new tab in the same session). If it still
+> can't find it, the binary is at
+> `C:\Program Files (x86)\cloudflared\cloudflared.exe` — you can call it
+> with the full path or add that folder to PATH manually via
+> `System Properties → Environment Variables`.
+
+### 4b. Option A — Quick tunnel (no Cloudflare account, easy)
+
+Fastest path. In a **second terminal** (leave PocketBase running in the
+first):
+
+```powershell
 cloudflared tunnel --url http://localhost:8090
 ```
 
-Copy the generated `https://<random>.trycloudflare.com` URL.
+You'll see output ending with a line like:
+
+```
+Your quick Tunnel has been created! Visit it at:
+https://random-subdomain.trycloudflare.com
+```
+
+Copy that URL — that's your `EXPO_PUBLIC_PB_URL`.
+
+> ⚠️ Quick tunnel URLs are **ephemeral**: they change every time you
+> restart `cloudflared`, and Cloudflare may rate-limit or shut them
+> down. Great for testing, painful long-term (you'll have to update the
+> `.env` and re-share the QR code every restart).
+
+### 4c. Option B — Named tunnel (stable URL, recommended for the crew)
+
+Requires a free Cloudflare account and a domain added to Cloudflare
+(free plan is fine). Gives you a permanent URL like
+`https://pb.yourdomain.com`.
+
+```powershell
+# 1. One-time login (opens a browser to authorize)
+cloudflared tunnel login
+
+# 2. Create a named tunnel — this creates a credentials .json file
+#    under ~/.cloudflared/<TUNNEL_ID>.json
+cloudflared tunnel create seventyfivehard
+
+# 3. Route a DNS name on your domain to the tunnel
+cloudflared tunnel route dns seventyfivehard pb.yourdomain.com
+```
+
+Then create a config file at `~/.cloudflared/config.yml` (Windows:
+`%USERPROFILE%\.cloudflared\config.yml`):
+
+```yaml
+tunnel: seventyfivehard
+credentials-file: C:\Users\<you>\.cloudflared\<TUNNEL_ID>.json
+
+ingress:
+  - hostname: pb.yourdomain.com
+    service: http://localhost:8090
+  - service: http_status:404
+```
+
+Run it:
+
+```powershell
+cloudflared tunnel run seventyfivehard
+```
+
+Your stable URL is now `https://pb.yourdomain.com`. Use that as
+`EXPO_PUBLIC_PB_URL` and you never have to touch the `.env` again.
+
+> **Optional:** install as a service (`cloudflared service install`)
+> so the tunnel restarts with your PC.
+
+> 🔒 **Never commit** `~/.cloudflared/*.json` or `config.yml` — they
+> contain the tunnel's private credentials. The project `.gitignore`
+> already blocks `.cloudflared/` and `*.cloudflared.json` at the repo
+> root, but the real files live in your home directory and should stay
+> there.
 
 ## 5. Point the mobile app at the tunnel
 

@@ -66,10 +66,14 @@ Follow [`backend/README.md`](./backend/README.md):
    `@request.auth.id != ""`.
 4. Import [`backend/pb_schema.json`](./backend/pb_schema.json) to create
    the `daily_logs` collection (Settings → Import collections).
-5. In a second terminal, expose it publicly:
+5. Install `cloudflared` and expose PocketBase publicly. Quick tunnel
+   (ephemeral URL, no account needed) in a second terminal:
    ```bash
    cloudflared tunnel --url http://localhost:8090
    ```
+   For a **stable URL** (recommended once you have a few friends on
+   it), set up a named tunnel — full instructions in
+   [`backend/README.md`](./backend/README.md#4-expose-the-backend-with-cloudflare-tunnel).
 
 ### 3. Point the app at your tunnel
 
@@ -108,6 +112,38 @@ Alternate scripts:
   on your PC. That folder is gitignored.
 - API rules are permissive on read (any signed-in user can see any log)
   so the feed works, but writes are locked to the log's owner.
+
+## Troubleshooting
+
+### "Project is incompatible with this version of Expo Go"
+
+This means the Expo Go app installed on the phone was built for a
+different SDK than the project (currently **SDK 57**). Pick one:
+
+1. **Update Expo Go** from the App Store / Play Store on the phone
+   (this fixes 99% of cases). Then rescan the QR code.
+2. If the store version is behind, install the SDK-57-specific build
+   directly from `https://expo.dev/go?sdkVersion=57&platform=android`
+   (or `platform=ios`) on the phone.
+3. As a last resort, downgrade the project to match an older Expo Go:
+   ```powershell
+   npx expo install expo@~54.0.0 --fix
+   ```
+   `--fix` re-pins every Expo SDK package to compatible versions.
+
+Confirm the project itself is healthy with `npx expo-doctor` — it
+should report `20/20 checks passed`.
+
+### "'cloudflared' is not recognized" after `winget install`
+
+See [backend/README.md § 4a](./backend/README.md#4a-install-cloudflared).
+Short answer: refresh PATH in the current terminal:
+
+```powershell
+$env:Path = [System.Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [System.Environment]::GetEnvironmentVariable('Path','User')
+```
+
+Or just open a fresh terminal.
 
 ## License
 
