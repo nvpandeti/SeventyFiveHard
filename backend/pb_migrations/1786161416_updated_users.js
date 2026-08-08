@@ -9,17 +9,16 @@ migrate((app) => {
   }, collection)
 
   // add field
-  collection.fields.addAt(9, new Field({
+  collection.fields.addAt(9, new DateField({
     "help": "",
     "hidden": false,
     "id": "date2502384312",
-    "max": "",
-    "min": "",
+    "max": undefined,
+    "min": undefined,
     "name": "start_date",
     "presentable": false,
     "required": true,
-    "system": false,
-    "type": "date"
+    "system": false
   }))
 
   app.save(collection)
