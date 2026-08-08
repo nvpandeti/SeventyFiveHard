@@ -51,6 +51,8 @@ yarn-error.*
 # uploaded progress photos, JWT signing secrets, backups, etc.)
 backend/pb_data/
 backend/pb_data/**
+!backend/pb_data/
+!backend/pb_data/types.d.ts
 backend/backups/
 backend/*.db
 backend/*.db-*

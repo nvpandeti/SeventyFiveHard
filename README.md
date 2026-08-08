@@ -23,7 +23,7 @@ Expo Go on phones  →  Cloudflare Tunnel (HTTPS)  →  Your PC (localhost:8090)
 
 ## Tech stack
 
-- **Expo SDK 57** + React Native + TypeScript
+- **Expo SDK 54** + React Native + TypeScript
 - **PocketBase** (`pocketbase` JS SDK)
 - **React Navigation** (bottom tabs + native stack)
 - **expo-image-picker** for camera / library photo capture
@@ -118,12 +118,12 @@ Alternate scripts:
 ### "Project is incompatible with this version of Expo Go"
 
 This means the Expo Go app installed on the phone was built for a
-different SDK than the project (currently **SDK 57**). Pick one:
+different SDK than the project (currently **SDK 54**). Pick one:
 
 1. **Update Expo Go** from the App Store / Play Store on the phone
    (this fixes 99% of cases). Then rescan the QR code.
-2. If the store version is behind, install the SDK-57-specific build
-   directly from `https://expo.dev/go?sdkVersion=57&platform=android`
+2. If the store version is behind, install the SDK-54-specific build
+   directly from `https://expo.dev/go?sdkVersion=54&platform=android`
    (or `platform=ios`) on the phone.
 3. As a last resort, downgrade the project to match an older Expo Go:
    ```powershell

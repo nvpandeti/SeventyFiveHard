@@ -20,13 +20,19 @@
   },
   "devDependencies": {
     "@types/react": "~19.1.10",
-    "typescript": "~5.9.2"
+    "typescript": "~5.9.2",
+    "vitest": "^2.1.8"
   },
   "scripts": {
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "test": "vitest run",
+    "typecheck": "npm run typecheck:app && npm run typecheck:backend",
+    "typecheck:app": "tsc --noEmit -p tsconfig.json",
+    "typecheck:backend": "tsc --noEmit -p backend/tsconfig.json",
+    "doctor": "expo-doctor"
   },
   "private": true
 }
