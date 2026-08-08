@@ -1,0 +1,80 @@
+[
+  {
+    "id": "pbc_daily_logs_75",
+    "name": "daily_logs",
+    "type": "base",
+    "system": false,
+    "fields": [
+      {
+        "id": "text_id_daily_logs",
+        "type": "text",
+        "name": "id",
+        "system": true,
+        "required": true,
+        "primaryKey": true,
+        "min": 15,
+        "max": 15,
+        "pattern": "^[a-z0-9]+$",
+        "autogeneratePattern": "[a-z0-9]{15}"
+      },
+      {
+        "id": "rel_user_daily_logs",
+        "type": "relation",
+        "name": "user",
+        "required": true,
+        "collectionId": "_pb_users_auth_",
+        "cascadeDelete": true,
+        "minSelect": 0,
+        "maxSelect": 1
+      },
+      {
+        "id": "date_daily_logs",
+        "type": "date",
+        "name": "date",
+        "required": true
+      },
+      { "id": "bool_diet_ok",    "type": "bool", "name": "diet_ok" },
+      { "id": "bool_workout_1",  "type": "bool", "name": "workout_1" },
+      { "id": "bool_workout_2",  "type": "bool", "name": "workout_2" },
+      { "id": "bool_water_ok",   "type": "bool", "name": "water_ok" },
+      { "id": "bool_reading_ok", "type": "bool", "name": "reading_ok" },
+      {
+        "id": "file_progress_photo",
+        "type": "file",
+        "name": "progress_photo",
+        "maxSelect": 1,
+        "maxSize": 10485760,
+        "mimeTypes": [
+          "image/jpeg",
+          "image/png",
+          "image/webp",
+          "image/heic"
+        ],
+        "thumbs": ["400x400"]
+      },
+      { "id": "bool_completed", "type": "bool", "name": "completed" },
+      {
+        "id": "autodate_created_daily_logs",
+        "type": "autodate",
+        "name": "created",
+        "onCreate": true,
+        "onUpdate": false
+      },
+      {
+        "id": "autodate_updated_daily_logs",
+        "type": "autodate",
+        "name": "updated",
+        "onCreate": true,
+        "onUpdate": true
+      }
+    ],
+    "indexes": [
+      "CREATE UNIQUE INDEX `idx_user_date` ON `daily_logs` (`user`, `date`)"
+    ],
+    "listRule": "@request.auth.id != \"\"",
+    "viewRule": "@request.auth.id != \"\"",
+    "createRule": "@request.auth.id != \"\" && user = @request.auth.id",
+    "updateRule": "@request.auth.id != \"\" && user = @request.auth.id",
+    "deleteRule": "@request.auth.id != \"\" && user = @request.auth.id"
+  }
+]
