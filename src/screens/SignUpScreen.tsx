@@ -10,6 +10,7 @@ import {
 import { Button } from '../components/Button';
 import { TextField } from '../components/TextField';
 import { useAuth } from '../context/AuthContext';
+import { debugError, debugLog, debugWarn } from '../lib/debug';
 import { colors, spacing, typography } from '../theme';
 
 export function SignUpScreen({ navigation }: any) {
@@ -21,18 +22,33 @@ export function SignUpScreen({ navigation }: any) {
   const [loading, setLoading] = useState(false);
 
   async function submit() {
+    const normalizedEmail = email.trim();
+    const normalizedName = name.trim();
+    debugLog('signup', 'Sign-up submit pressed', {
+      email: normalizedEmail,
+      hasName: !!normalizedName,
+      passwordLength: password.length,
+    });
     setError(null);
     if (password.length < 8) {
+      debugWarn('signup', 'Sign-up blocked by password length validation', {
+        passwordLength: password.length,
+      });
       setError('Password must be at least 8 characters.');
       return;
     }
     setLoading(true);
     try {
-      await signUp(email.trim(), password, name.trim() || undefined);
+      await signUp(normalizedEmail, password, normalizedName || undefined);
+      debugLog('signup', 'Sign-up submit succeeded', {
+        email: normalizedEmail,
+      });
     } catch (err: any) {
+      debugError('signup', 'Sign-up submit failed', err);
       setError(err?.message ?? 'Sign-up failed.');
     } finally {
       setLoading(false);
+      debugLog('signup', 'Sign-up submit finished');
     }
   }
 
@@ -67,7 +83,10 @@ export function SignUpScreen({ navigation }: any) {
           <Button
             title="Back to Sign In"
             variant="ghost"
-            onPress={() => navigation.goBack()}
+            onPress={() => {
+              debugLog('signup', 'Returning to sign-in screen');
+              navigation.goBack();
+            }}
           />
         </View>
       </ScrollView>

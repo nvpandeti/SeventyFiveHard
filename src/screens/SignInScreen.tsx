@@ -10,6 +10,7 @@ import {
 import { Button } from '../components/Button';
 import { TextField } from '../components/TextField';
 import { useAuth } from '../context/AuthContext';
+import { debugError, debugLog } from '../lib/debug';
 import { colors, spacing, typography } from '../theme';
 
 export function SignInScreen({ navigation }: any) {
@@ -20,14 +21,22 @@ export function SignInScreen({ navigation }: any) {
 	const [loading, setLoading] = useState(false);
 
 	async function submit() {
+		const normalizedEmail = email.trim();
+		debugLog('signin', 'Sign-in submit pressed', {
+			email: normalizedEmail,
+			passwordLength: password.length,
+		});
 		setError(null);
 		setLoading(true);
 		try {
-			await signIn(email.trim(), password);
+			await signIn(normalizedEmail, password);
+			debugLog('signin', 'Sign-in submit succeeded', { email: normalizedEmail });
 		} catch (err: any) {
+			debugError('signin', 'Sign-in submit failed', err);
 			setError(err?.message ?? 'Sign-in failed.');
 		} finally {
 			setLoading(false);
+			debugLog('signin', 'Sign-in submit finished');
 		}
 	}
 
@@ -61,7 +70,10 @@ export function SignInScreen({ navigation }: any) {
 					<Button
 						title="Create Account"
 						variant="ghost"
-						onPress={() => navigation.navigate('SignUp')}
+						onPress={() => {
+							debugLog('signin', 'Navigating to sign-up screen');
+							navigation.navigate('SignUp');
+						}}
 					/>
 				</View>
 			</ScrollView>

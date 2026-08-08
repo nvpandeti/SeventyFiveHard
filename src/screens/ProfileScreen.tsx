@@ -7,6 +7,7 @@ import {
 } from 'react-native';
 import { Button } from '../components/Button';
 import { useAuth } from '../context/AuthContext';
+import { debugError, debugLog } from '../lib/debug';
 import { listUserLogs } from '../lib/logs';
 import { CHALLENGE_LENGTH } from '../config';
 import { colors, radius, spacing, typography } from '../theme';
@@ -19,17 +20,32 @@ export function ProfileScreen() {
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    if (!user) return;
+    if (!user) {
+      debugLog('profile', 'Skipping load; no user');
+      return;
+    }
+    debugLog('profile', 'Loading profile history', { userId: user.id });
     try {
       const items = await listUserLogs(user.id, CHALLENGE_LENGTH);
       setLogs(items);
+      debugLog('profile', 'Profile history loaded', {
+        userId: user.id,
+        count: items.length,
+      });
+    } catch (error) {
+      debugError('profile', 'Profile history load failed', error);
     } finally {
       setLoading(false);
+      debugLog('profile', 'Profile history load finished');
     }
   }, [user]);
 
   useEffect(() => {
+    debugLog('profile', 'ProfileScreen mounted');
     load();
+    return () => {
+      debugLog('profile', 'ProfileScreen unmounted');
+    };
   }, [load]);
 
   const dayNumber = normalizeCurrentDay(user?.current_day);
@@ -69,7 +85,14 @@ export function ProfileScreen() {
       )}
 
       <View style={{ height: spacing.xl }} />
-      <Button title="Sign Out" variant="danger" onPress={signOut} />
+      <Button
+        title="Sign Out"
+        variant="danger"
+        onPress={() => {
+          debugLog('profile', 'Sign-out button pressed', { userId: user?.id ?? null });
+          signOut();
+        }}
+      />
     </ScrollView>
   );
 }

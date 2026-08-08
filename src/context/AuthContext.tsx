@@ -7,6 +7,7 @@ import React, {
   useState,
 } from 'react';
 import { pb, hydrateAuth } from '../lib/pocketbase';
+import { debugError, debugLog, debugWarn } from '../lib/debug';
 import type { AppUser } from '../types';
 import { todayISO } from '../utils/date';
 
@@ -35,56 +36,111 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Hydrate stored auth on mount and subscribe to future changes.
   useEffect(() => {
+    debugLog('auth', 'AuthProvider mounted; starting hydration');
     let mounted = true;
     (async () => {
-      await hydrateAuth();
-      if (!mounted) return;
-      const current = pb.authStore.record as AppUser | null | undefined;
-      setUser(current ?? null);
-      setLoading(false);
+      try {
+        await hydrateAuth();
+        if (!mounted) return;
+        const current = pb.authStore.record as unknown as AppUser | null | undefined;
+        setUser(current ?? null);
+        debugLog('auth', 'Hydration complete', {
+          userId: current?.id ?? null,
+          signedIn: !!current,
+        });
+      } catch (error) {
+        debugError('auth', 'Hydration failed', error);
+      } finally {
+        if (mounted) {
+          setLoading(false);
+        }
+      }
     })();
 
     const unsubscribe = pb.authStore.onChange((_token, record) => {
+      debugLog('auth', 'Auth store changed', {
+        userId: (record as AppUser | null)?.id ?? null,
+        signedIn: !!record,
+      });
       setUser((record as AppUser | null) ?? null);
     });
 
     return () => {
+      debugLog('auth', 'AuthProvider unmounted');
       mounted = false;
       unsubscribe();
     };
   }, []);
 
   const signIn = useCallback(async (email: string, password: string) => {
-    await pb.collection('users').authWithPassword(email, password);
+    const normalizedEmail = email.trim();
+    debugLog('auth', 'Sign-in requested', { email: normalizedEmail });
+    try {
+      const result = await pb.collection('users').authWithPassword(normalizedEmail, password);
+      debugLog('auth', 'Sign-in succeeded', {
+        email: normalizedEmail,
+        userId: result.record?.id,
+      });
+    } catch (error) {
+      debugError('auth', 'Sign-in failed', error);
+      throw error;
+    }
   }, []);
 
   const signUp = useCallback(
     async (email: string, password: string, name?: string) => {
+      const normalizedEmail = email.trim();
       const username = buildUsernameFromEmail(email);
+      debugLog('auth', 'Sign-up requested', {
+        email: normalizedEmail,
+        hasName: !!name,
+      });
       await pb.collection('users').create({
-        email,
+        email: normalizedEmail,
         username,
         password,
         passwordConfirm: password,
-        name: name ?? email.split('@')[0],
+        name: name ?? normalizedEmail.split('@')[0],
         current_day: 1,
         start_date: todayISO(),
       });
-      await pb.collection('users').authWithPassword(email, password);
+      debugLog('auth', 'Sign-up record created', {
+        email: normalizedEmail,
+        username,
+      });
+      const result = await pb.collection('users').authWithPassword(normalizedEmail, password);
+      debugLog('auth', 'Sign-up auto sign-in succeeded', {
+        email: normalizedEmail,
+        userId: result.record?.id,
+      });
     },
     [],
   );
 
   const signOut = useCallback(() => {
+    const record = pb.authStore.record as { id?: string } | null | undefined;
+    debugLog('auth', 'Sign-out requested', {
+      userId: record?.id ?? null,
+    });
     pb.authStore.clear();
   }, []);
 
   const refreshUser = useCallback(async () => {
-    if (!pb.authStore.record) return;
+    if (!pb.authStore.record) {
+      debugWarn('auth', 'Skipping refreshUser; no active auth record');
+      return;
+    }
+    debugLog('auth', 'Refreshing user from auth token', {
+      userId: (pb.authStore.record as { id?: string } | null | undefined)?.id ?? null,
+    });
     try {
       const fresh = await pb.collection('users').authRefresh();
       setUser((fresh.record as unknown as AppUser) ?? null);
-    } catch {
+      debugLog('auth', 'User refresh succeeded', {
+        userId: fresh.record?.id,
+      });
+    } catch (error) {
+      debugError('auth', 'User refresh failed; clearing auth store', error);
       pb.authStore.clear();
     }
   }, []);

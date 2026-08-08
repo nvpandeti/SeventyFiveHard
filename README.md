@@ -81,7 +81,11 @@ Copy `.env.example` → `.env` and paste your Cloudflare Tunnel URL:
 
 ```
 EXPO_PUBLIC_PB_URL=https://random-subdomain.trycloudflare.com
+EXPO_PUBLIC_DEBUG_LOGS=false
 ```
+
+Set `EXPO_PUBLIC_DEBUG_LOGS=true` when you want very verbose app logs
+for auth, navigation, data sync, and major user actions.
 
 ### 4. Run the app
 
@@ -152,11 +156,11 @@ start working on your app!", first confirm Metro actually started for
 this project. In this repo, a common cause is using an unsupported Node
 version with Expo SDK 54.
 
-Use Node 18, 20, 22, or 24. Node 25 can crash Metro file watching with
-errors under `@react-native/codegen`, which leaves Expo serving stale or
-fallback output instead of your app.
+Use Node 18 through 25. If Metro still fails on startup, clear the app
+install and Metro cache first before assuming it is a Node-version
+problem.
 
-After switching Node versions, reinstall and restart cleanly:
+If Metro gets into a bad state, reinstall and restart cleanly:
 
 ```powershell
 rm -r node_modules

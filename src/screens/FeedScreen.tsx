@@ -7,6 +7,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { debugError, debugLog } from '../lib/debug';
 import { listTodaysLogs, photoUrl } from '../lib/logs';
 import { colors, radius, spacing, typography } from '../theme';
 import type { DailyLog } from '../types';
@@ -19,18 +20,26 @@ export function FeedScreen() {
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
+    debugLog('feed', 'Loading feed');
     try {
       const items = await listTodaysLogs();
       setLogs(items);
-    } catch {
+      debugLog('feed', 'Feed loaded', { count: items.length });
+    } catch (error) {
+      debugError('feed', 'Feed load failed', error);
       // network / not signed in; leave list empty.
     } finally {
       setLoading(false);
+      debugLog('feed', 'Feed load finished');
     }
   }, []);
 
   useEffect(() => {
+    debugLog('feed', 'FeedScreen mounted');
     load();
+    return () => {
+      debugLog('feed', 'FeedScreen unmounted');
+    };
   }, [load]);
 
   return (
@@ -56,9 +65,11 @@ export function FeedScreen() {
         <RefreshControl
           refreshing={refreshing}
           onRefresh={async () => {
+            debugLog('feed', 'Feed pull-to-refresh started');
             setRefreshing(true);
             await load();
             setRefreshing(false);
+            debugLog('feed', 'Feed pull-to-refresh finished');
           }}
           tintColor={colors.textDim}
         />

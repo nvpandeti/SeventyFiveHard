@@ -1,9 +1,14 @@
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
+import {
+  NavigationContainer,
+  DefaultTheme,
+  createNavigationContainerRef,
+} from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from './context/AuthContext';
+import { debugLog } from './lib/debug';
 import { FeedScreen } from './screens/FeedScreen';
 import { ProfileScreen } from './screens/ProfileScreen';
 import { SignInScreen } from './screens/SignInScreen';
@@ -13,6 +18,7 @@ import { colors } from './theme';
 
 const AuthStack = createNativeStackNavigator();
 const Tabs = createBottomTabNavigator();
+const navRef = createNavigationContainerRef<any>();
 
 const navTheme = {
   ...DefaultTheme,
@@ -92,6 +98,16 @@ function MainTabs() {
 
 export function RootNavigator() {
   const { user, loading } = useAuth();
+  const lastRouteName = useRef<string | null>(null);
+
+  useEffect(() => {
+    debugLog('navigation', 'Auth state changed', {
+      loading,
+      userId: user?.id ?? null,
+      signedIn: !!user,
+    });
+  }, [loading, user?.id, user]);
+
   if (loading) {
     return (
       <View style={styles.center}>
@@ -100,7 +116,28 @@ export function RootNavigator() {
     );
   }
   return (
-    <NavigationContainer theme={navTheme}>
+    <NavigationContainer
+      ref={navRef}
+      theme={navTheme}
+      onReady={() => {
+        const currentRoute = navRef.getCurrentRoute();
+        lastRouteName.current = currentRoute?.name ?? null;
+        debugLog('navigation', 'Navigation ready', {
+          route: currentRoute?.name ?? null,
+        });
+      }}
+      onStateChange={() => {
+        const currentRoute = navRef.getCurrentRoute();
+        const currentRouteName = currentRoute?.name ?? null;
+        if (currentRouteName !== lastRouteName.current) {
+          debugLog('navigation', 'Route changed', {
+            from: lastRouteName.current,
+            to: currentRouteName,
+          });
+          lastRouteName.current = currentRouteName;
+        }
+      }}
+    >
       {user ? <MainTabs /> : <AuthNavigator />}
     </NavigationContainer>
   );

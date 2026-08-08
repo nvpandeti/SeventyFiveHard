@@ -12,6 +12,7 @@ import {
 import { Button } from '../components/Button';
 import { TaskCheckItem } from '../components/TaskCheckItem';
 import { useAuth } from '../context/AuthContext';
+import { debugError, debugLog, debugWarn } from '../lib/debug';
 import { getMyLogForDate, photoUrl, upsertMyLog } from '../lib/logs';
 import { colors, radius, spacing, typography } from '../theme';
 import type { DailyLog, TaskKey } from '../types';
@@ -42,10 +43,15 @@ export function TodayScreen() {
   const dayNumber = normalizeCurrentDay(user?.current_day);
 
   const load = useCallback(async () => {
+    debugLog('today', 'Loading today screen data', { date, userId: user?.id ?? null });
     try {
       const existing = await getMyLogForDate(date);
       setLog(existing);
       if (existing) {
+        debugLog('today', 'Existing daily log loaded', {
+          logId: existing.id,
+          completed: existing.completed,
+        });
         setToggles({
           diet_ok: !!existing.diet_ok,
           workout_1: !!existing.workout_1,
@@ -55,19 +61,26 @@ export function TodayScreen() {
         });
         setSavedPhotoUrl(photoUrl(existing));
       } else {
+        debugLog('today', 'No existing daily log; resetting local state');
         setToggles(emptyToggles);
         setSavedPhotoUrl(null);
       }
       setPhotoPreviewUri(null);
     } catch (err: any) {
+      debugError('today', 'Failed to load today screen data', err);
       Alert.alert('Sync error', err?.message ?? 'Could not load today\'s log.');
     } finally {
       setLoading(false);
+      debugLog('today', 'Finished loading today screen data', { date });
     }
-  }, [date]);
+  }, [date, user?.id]);
 
   useEffect(() => {
+    debugLog('today', 'TodayScreen mounted');
     load();
+    return () => {
+      debugLog('today', 'TodayScreen unmounted');
+    };
   }, [load]);
 
   const allChecked = useMemo(
@@ -76,12 +89,22 @@ export function TodayScreen() {
   );
 
   function toggle(key: TaskKey) {
-    setToggles((t) => ({ ...t, [key]: !t[key] }));
+    setToggles((t) => {
+      const next = { ...t, [key]: !t[key] };
+      debugLog('today', 'Task toggled', {
+        key,
+        previous: t[key],
+        next: next[key],
+      });
+      return next;
+    });
   }
 
   async function pickPhoto() {
+    debugLog('today', 'Pick photo requested');
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
+      debugWarn('today', 'Photo library permission denied');
       Alert.alert('Permission needed', 'Please allow photo access to upload a progress photo.');
       return;
     }
@@ -91,13 +114,18 @@ export function TodayScreen() {
       allowsEditing: false,
     });
     if (!result.canceled && result.assets?.[0]) {
+      debugLog('today', 'Photo selected from library', { uri: result.assets[0].uri });
       setPhotoPreviewUri(result.assets[0].uri);
+    } else {
+      debugLog('today', 'Photo library picker canceled');
     }
   }
 
   async function takePhoto() {
+    debugLog('today', 'Take photo requested');
     const perm = await ImagePicker.requestCameraPermissionsAsync();
     if (!perm.granted) {
+      debugWarn('today', 'Camera permission denied');
       Alert.alert('Permission needed', 'Please allow camera access to take a progress photo.');
       return;
     }
@@ -106,11 +134,20 @@ export function TodayScreen() {
       allowsEditing: false,
     });
     if (!result.canceled && result.assets?.[0]) {
+      debugLog('today', 'Photo captured with camera', { uri: result.assets[0].uri });
       setPhotoPreviewUri(result.assets[0].uri);
+    } else {
+      debugLog('today', 'Camera capture canceled');
     }
   }
 
   async function submit(markComplete: boolean) {
+    debugLog('today', 'Submit requested', {
+      markComplete,
+      hasPhotoPreview: !!photoPreviewUri,
+      hasSavedPhoto: !!savedPhotoUrl,
+      toggles,
+    });
     setSaving(true);
     try {
       const saved = await upsertMyLog(
@@ -122,13 +159,19 @@ export function TodayScreen() {
       setSavedPhotoUrl(photoUrl(saved));
       setPhotoPreviewUri(null);
       await refreshUser();
+      debugLog('today', 'Submit succeeded', {
+        logId: saved.id,
+        completed: saved.completed,
+      });
       if (markComplete) {
         Alert.alert('Day locked in 💪', `Day ${dayNumber} complete. See you tomorrow.`);
       }
     } catch (err: any) {
+      debugError('today', 'Submit failed', err);
       Alert.alert('Save failed', err?.message ?? 'Could not save your log.');
     } finally {
       setSaving(false);
+      debugLog('today', 'Submit finished', { markComplete });
     }
   }
 
@@ -146,9 +189,11 @@ export function TodayScreen() {
         <RefreshControl
           refreshing={refreshing}
           onRefresh={async () => {
+            debugLog('today', 'Pull-to-refresh started');
             setRefreshing(true);
             await load();
             setRefreshing(false);
+            debugLog('today', 'Pull-to-refresh finished');
           }}
           tintColor={colors.textDim}
         />

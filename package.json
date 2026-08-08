@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "index.ts",
   "engines": {
-    "node": ">=18 <25"
+    "node": ">=18 <26"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
