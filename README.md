@@ -145,6 +145,25 @@ $env:Path = [System.Environment]::GetEnvironmentVariable('Path','Machine') + ';'
 
 Or just open a fresh terminal.
 
+### Expo shows the default starter screen or Metro crashes on startup
+
+If Expo Go shows a generic starter screen such as "Open up App.tsx to
+start working on your app!", first confirm Metro actually started for
+this project. In this repo, a common cause is using an unsupported Node
+version with Expo SDK 54.
+
+Use Node 18, 20, 22, or 24. Node 25 can crash Metro file watching with
+errors under `@react-native/codegen`, which leaves Expo serving stale or
+fallback output instead of your app.
+
+After switching Node versions, reinstall and restart cleanly:
+
+```powershell
+rm -r node_modules
+npm install
+npx expo start --clear
+```
+
 ## License
 
 See [`LICENSE`](./LICENSE).
