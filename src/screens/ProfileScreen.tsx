@@ -11,7 +11,7 @@ import { listUserLogs } from '../lib/logs';
 import { CHALLENGE_LENGTH } from '../config';
 import { colors, radius, spacing, typography } from '../theme';
 import type { DailyLog } from '../types';
-import { daysSince, todayISO } from '../utils/date';
+import { normalizeCurrentDay } from '../utils/date';
 
 export function ProfileScreen() {
   const { user, signOut } = useAuth();
@@ -32,7 +32,7 @@ export function ProfileScreen() {
     load();
   }, [load]);
 
-  const dayNumber = user?.start_date ? daysSince(user.start_date, todayISO()) : 1;
+  const dayNumber = normalizeCurrentDay(user?.current_day);
   const completedCount = logs.filter((l) => l.completed).length;
 
   return (

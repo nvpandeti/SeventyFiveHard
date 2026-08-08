@@ -16,7 +16,7 @@ import { getMyLogForDate, photoUrl, upsertMyLog } from '../lib/logs';
 import { colors, radius, spacing, typography } from '../theme';
 import type { DailyLog, TaskKey } from '../types';
 import { TASKS } from '../types';
-import { daysSince, formatFriendlyDate, todayISO } from '../utils/date';
+import { formatFriendlyDate, normalizeCurrentDay, todayISO } from '../utils/date';
 
 type Toggles = Record<TaskKey, boolean>;
 
@@ -39,7 +39,7 @@ export function TodayScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   const date = todayISO();
-  const dayNumber = user?.start_date ? daysSince(user.start_date, date) : 1;
+  const dayNumber = normalizeCurrentDay(user?.current_day);
 
   const load = useCallback(async () => {
     try {

@@ -45,9 +45,11 @@ In the Admin UI:
    - `current_day` — type **Number**, min `1`, max `75` (not required)
    - `start_date` — type **Date** (not required)
 3. **(Recommended for a friends-only app)** Loosen the read rules so the
-   feed can show everyone. Click the "API Rules" tab and set:
+   feed can show everyone, and allow app sign-up. Click the "API Rules"
+   tab and set:
    - **List rule**: `@request.auth.id != ""`
    - **View rule**: `@request.auth.id != ""`
+   - **Create rule**: leave empty (public signup enabled)
    - Leave **Create / Update / Delete rules** alone (defaults keep users
      only able to edit themselves).
 4. Click **Save changes**.
