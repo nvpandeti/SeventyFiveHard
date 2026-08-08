@@ -32,7 +32,9 @@ yarn-error.*
 
 # local env files
 .env
-.env*.local
+.env.*
+!.env.example
+!.env.*.example
 
 # typescript
 *.tsbuildinfo
@@ -41,7 +43,67 @@ yarn-error.*
 /ios
 /android
 
-# PocketBase backend (local data / binary should not be committed)
+# ---------------------------------------------------------------
+# Secrets / sensitive data — NEVER commit any of the below
+# ---------------------------------------------------------------
+
+# PocketBase runtime data (contains SQLite DB with password hashes,
+# uploaded progress photos, JWT signing secrets, backups, etc.)
 backend/pb_data/
+backend/pb_data/**
+backend/backups/
+backend/*.db
+backend/*.db-*
+backend/*.sqlite
+backend/*.sqlite-*
+
+# PocketBase binary — don't commit compiled binaries
 backend/pocketbase
 backend/pocketbase.exe
+
+# Any SQLite / database file anywhere in the repo
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite-journal
+*.sqlite-shm
+*.sqlite-wal
+
+# Cloudflare tunnel credentials & config
+*.cloudflared.json
+cert.pem
+cloudflared-config.yml
+.cloudflared/
+
+# Expo / EAS credentials & build artifacts
+credentials.json
+credentials/
+eas.json.local
+.easignore.local
+*.keystore
+*.jks
+*.p8
+*.p12
+*.mobileprovision
+
+# Firebase / Google services config (may contain API keys)
+google-services.json
+GoogleService-Info.plist
+
+# Log files (may leak tokens or PII)
+*.log
+logs/
+
+# Editor / OS scratch files that may contain secrets pasted mid-edit
+.vscode/*.local.json
+.idea/
+*.swp
+*~
+
+# Certificates & private keys
+*.pem
+*.crt
+*.cer
+*.pfx
