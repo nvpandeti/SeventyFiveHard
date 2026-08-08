@@ -35,5 +35,5 @@ migrate((app) => {
   // remove field
   collection.fields.removeById("date2502384312")
 
-  return app.save(collection)
+  app.save(collection)
 })
