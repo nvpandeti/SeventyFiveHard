@@ -5,6 +5,7 @@ export interface AppUser {
   username?: string;
   avatar?: string;
   current_day?: number;
+  completed_days?: number;
   start_date?: string;
   created?: string;
   updated?: string;

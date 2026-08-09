@@ -104,6 +104,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         passwordConfirm: password,
         name: name ?? normalizedEmail.split('@')[0],
         current_day: 1,
+        completed_days: 0,
         start_date: todayISO(),
       });
       debugLog('auth', 'Sign-up record created', {

@@ -51,7 +51,8 @@ export function ProfileScreen({ navigation }: any) {
   }, [load]);
 
   const dayNumber = normalizeCurrentDay(user?.current_day);
-  const completedCount = logs.filter((l) => l.completed).length;
+  const completedFromLogs = logs.filter((l) => l.completed).length;
+  const completedCount = Math.max(0, Number(user?.completed_days ?? completedFromLogs));
   const avatarUrl = getProfileAvatarUrl(user);
   const displayName = getProfileDisplayName(user);
 
