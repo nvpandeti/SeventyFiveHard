@@ -2,6 +2,7 @@ import { pb } from '../lib/pocketbase';
 import type { DailyLog } from '../types';
 import { todayISO } from '../utils/date';
 import { debugError, debugLog, debugWarn } from './debug';
+import { createPocketBaseFilePart } from './pocketbaseFile';
 
 /** Fetch (or return null) the current user's log for a given ISO date. */
 export async function getMyLogForDate(dateISO: string = todayISO()): Promise<DailyLog | null> {
@@ -180,26 +181,9 @@ function buildFormData(fields: Record<string, unknown>, photoUri: string): FormD
   Object.entries(fields).forEach(([k, v]) => {
     form.append(k, typeof v === 'boolean' ? String(v) : (v as string));
   });
-  const rawFilename = photoUri.split('/').pop() ?? `photo-${Date.now()}.jpg`;
-  const filename = rawFilename.split('?')[0].split('#')[0] || `photo-${Date.now()}.jpg`;
-  const rawExt = filename.includes('.') ? filename.split('.').pop() ?? 'jpg' : 'jpg';
-  const ext = rawExt.toLowerCase();
-  const mimeByExt: Record<string, string> = {
-    jpg: 'image/jpeg',
-    jpeg: 'image/jpeg',
-    png: 'image/png',
-    webp: 'image/webp',
-    heic: 'image/heic',
-  };
-  const mimeType = mimeByExt[ext] ?? 'image/jpeg';
   // React Native's FormData accepts an object with { uri, name, type },
   // but the DOM lib types only know about Blob | string. Cast to any here.
-  const filePart: any = {
-    uri: photoUri,
-    name: filename,
-    type: mimeType,
-  };
-  form.append('progress_photo', filePart);
+  form.append('progress_photo', createPocketBaseFilePart(photoUri, 'photo') as any);
   return form;
 }
 
