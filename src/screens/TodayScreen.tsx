@@ -142,6 +142,11 @@ export function TodayScreen() {
   }
 
   async function submit(markComplete: boolean) {
+    if (markComplete && !allChecked) {
+      Alert.alert('Finish all tasks first', 'Complete all 5 tasks and add a progress photo.');
+      return;
+    }
+
     debugLog('today', 'Submit requested', {
       markComplete,
       hasPhotoPreview: !!photoPreviewUri,

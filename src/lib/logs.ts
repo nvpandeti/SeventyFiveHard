@@ -187,10 +187,22 @@ function buildFormData(fields: Record<string, unknown>, photoUri: string): FormD
   return form;
 }
 
-/** Fetch every user's log for today for the social feed. */
+/** Fetch recent logs for the social feed (across dates). */
+export async function listFeedLogs(limit = 100): Promise<DailyLog[]> {
+  debugLog('logs', 'Fetching social feed logs', { limit });
+  const items = await pb
+    .collection('daily_logs')
+    .getList<DailyLog>(1, limit, {
+      expand: 'user',
+      sort: '-date,-created',
+    });
+  debugLog('logs', 'Fetched social feed logs', { limit, count: items.items.length });
+  return items.items;
+}
+
+/** @deprecated Use listFeedLogs for the main feed UI. */
 export async function listTodaysLogs(): Promise<DailyLog[]> {
   const today = todayISO();
-  debugLog('logs', 'Fetching social feed logs', { date: today });
   const items = await pb
     .collection('daily_logs')
     .getFullList<DailyLog>({
@@ -198,7 +210,6 @@ export async function listTodaysLogs(): Promise<DailyLog[]> {
       expand: 'user',
       sort: '-created',
     });
-  debugLog('logs', 'Fetched social feed logs', { date: today, count: items.length });
   return items;
 }
 

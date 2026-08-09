@@ -8,11 +8,11 @@ import {
   View,
 } from 'react-native';
 import { debugError, debugLog } from '../lib/debug';
-import { listTodaysLogs, photoUrl } from '../lib/logs';
+import { listFeedLogs, photoUrl } from '../lib/logs';
 import { colors, radius, spacing, typography } from '../theme';
 import type { DailyLog } from '../types';
 import { TASKS } from '../types';
-import { formatFriendlyDate, todayISO } from '../utils/date';
+import { formatFriendlyDate } from '../utils/date';
 
 export function FeedScreen() {
   const [logs, setLogs] = useState<DailyLog[]>([]);
@@ -22,7 +22,7 @@ export function FeedScreen() {
   const load = useCallback(async () => {
     debugLog('feed', 'Loading feed');
     try {
-      const items = await listTodaysLogs();
+      const items = await listFeedLogs();
       setLogs(items);
       debugLog('feed', 'Feed loaded', { count: items.length });
     } catch (error) {
@@ -50,7 +50,7 @@ export function FeedScreen() {
       keyExtractor={(item) => item.id}
       ListHeaderComponent={
         <View style={styles.header}>
-          <Text style={styles.label}>Today · {formatFriendlyDate(todayISO())}</Text>
+          <Text style={styles.label}>Recent Check-ins</Text>
           <Text style={styles.title}>The Crew</Text>
         </View>
       }
@@ -58,7 +58,7 @@ export function FeedScreen() {
         loading ? (
           <Text style={styles.muted}>Loading feed…</Text>
         ) : (
-          <Text style={styles.muted}>No check-ins yet today. Be the first!</Text>
+          <Text style={styles.muted}>No check-ins yet. Be the first!</Text>
         )
       }
       refreshControl={
@@ -83,6 +83,7 @@ export function FeedScreen() {
 function FeedCard({ log }: { log: DailyLog }) {
   const name = log.expand?.user?.name ?? log.expand?.user?.email ?? 'Unknown';
   const day = log.expand?.user?.current_day ?? '—';
+  const logDate = formatFriendlyDate(log.date.slice(0, 10));
   const url = photoUrl(log);
   const checks = TASKS.map((t) => ({
     key: t.key,
@@ -99,7 +100,7 @@ function FeedCard({ log }: { log: DailyLog }) {
         <View style={{ flex: 1 }}>
           <Text style={styles.name}>{name}</Text>
           <Text style={styles.sub}>
-            Day {day} {log.completed ? '· ✅ complete' : '· in progress'}
+            {logDate} · Day {day} {log.completed ? '· ✅ complete' : '· in progress'}
           </Text>
         </View>
       </View>
