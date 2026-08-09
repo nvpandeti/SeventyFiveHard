@@ -11,10 +11,11 @@ import { useAuth } from '../context/AuthContext';
 import { debugError, debugLog } from '../lib/debug';
 import { listUserLogs } from '../lib/logs';
 import { getProfileAvatarLabel, getProfileAvatarUrl, getProfileDisplayName } from '../lib/profile';
+import { getFeedLogStatus } from '../lib/feedStatus';
 import { CHALLENGE_LENGTH } from '../config';
 import { colors, radius, spacing, typography } from '../theme';
 import type { DailyLog } from '../types';
-import { normalizeCurrentDay } from '../utils/date';
+import { formatFriendlyDate, normalizeCurrentDay } from '../utils/date';
 
 export function ProfileScreen({ navigation }: any) {
   const { user, signOut } = useAuth();
@@ -91,14 +92,22 @@ export function ProfileScreen({ navigation }: any) {
       ) : logs.length === 0 ? (
         <Text style={styles.muted}>No logs yet. Head to Today to start.</Text>
       ) : (
-        logs.map((l) => (
-          <View key={l.id} style={styles.logRow}>
-            <Text style={styles.logDate}>{l.date}</Text>
-            <Text style={[styles.logStatus, l.completed ? styles.ok : styles.pending]}>
-              {l.completed ? '✓ complete' : '· in progress'}
-            </Text>
-          </View>
-        ))
+        logs.map((l) => {
+          const status = getFeedLogStatus(l.date, l.completed);
+          const label =
+            status === 'complete' ? '✓ Complete' :
+            status === 'in-progress' ? '● In Progress' : null;
+          const labelStyle =
+            status === 'complete' ? styles.ok : styles.pending;
+          return (
+            <View key={l.id} style={styles.logRow}>
+              <Text style={styles.logDate}>{formatFriendlyDate(l.date.slice(0, 10))}</Text>
+              {label ? (
+                <Text style={[styles.logStatus, labelStyle]}>{label}</Text>
+              ) : null}
+            </View>
+          );
+        })
       )}
 
       <View style={{ height: spacing.xl }} />
