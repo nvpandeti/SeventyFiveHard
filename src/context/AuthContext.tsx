@@ -8,6 +8,7 @@ import React, {
 } from 'react';
 import { pb, hydrateAuth } from '../lib/pocketbase';
 import { debugError, debugLog, debugWarn } from '../lib/debug';
+import { createPocketBaseFilePart } from '../lib/pocketbaseFile';
 import type { AppUser } from '../types';
 import { todayISO } from '../utils/date';
 
@@ -26,6 +27,7 @@ interface AuthContextValue {
   signUp: (email: string, password: string, name?: string) => Promise<void>;
   signOut: () => void;
   refreshUser: () => Promise<void>;
+  updateProfile: (name: string, avatarUri?: string | null) => Promise<AppUser>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -145,9 +147,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const updateProfile = useCallback(async (name: string, avatarUri?: string | null) => {
+    const current = pb.authStore.record as AppUser | null | undefined;
+    if (!current?.id) {
+      debugWarn('auth', 'Skipping profile update; no active auth record');
+      throw new Error('Not signed in');
+    }
+
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      throw new Error('Name is required.');
+    }
+
+    debugLog('auth', 'Profile update requested', {
+      userId: current.id,
+      hasAvatar: !!avatarUri,
+    });
+
+    const body: FormData | Record<string, unknown> = avatarUri
+      ? (() => {
+          const form = new FormData();
+          form.append('name', trimmedName);
+          form.append('avatar', createPocketBaseFilePart(avatarUri, 'avatar') as any);
+          return form;
+        })()
+      : { name: trimmedName };
+
+    const updated = await pb.collection('users').update<AppUser>(current.id, body as any);
+    pb.authStore.save(pb.authStore.token, updated as any);
+    setUser(updated);
+
+    debugLog('auth', 'Profile update succeeded', {
+      userId: updated.id,
+      hasAvatar: !!updated.avatar,
+    });
+
+    return updated;
+  }, []);
+
   const value = useMemo<AuthContextValue>(
-    () => ({ user, loading, signIn, signUp, signOut, refreshUser }),
-    [user, loading, signIn, signUp, signOut, refreshUser],
+    () => ({ user, loading, signIn, signUp, signOut, refreshUser, updateProfile }),
+    [user, loading, signIn, signUp, signOut, refreshUser, updateProfile],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

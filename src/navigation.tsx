@@ -9,6 +9,7 @@ import React, { useEffect, useRef } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from './context/AuthContext';
 import { debugLog } from './lib/debug';
+import { EditProfileScreen } from './screens/EditProfileScreen';
 import { FeedScreen } from './screens/FeedScreen';
 import { ProfileScreen } from './screens/ProfileScreen';
 import { SignInScreen } from './screens/SignInScreen';
@@ -17,6 +18,7 @@ import { TodayScreen } from './screens/TodayScreen';
 import { colors } from './theme';
 
 const AuthStack = createNativeStackNavigator();
+const ProfileStack = createNativeStackNavigator();
 const Tabs = createBottomTabNavigator();
 const navRef = createNavigationContainerRef<any>();
 
@@ -87,12 +89,37 @@ function MainTabs() {
       />
       <Tabs.Screen
         name="Profile"
-        component={ProfileScreen}
+        component={ProfileNavigator}
         options={{
+          headerShown: false,
           tabBarIcon: ({ focused }) => <TabIcon label="👤" focused={focused} />,
         }}
       />
     </Tabs.Navigator>
+  );
+}
+
+function ProfileNavigator() {
+  return (
+    <ProfileStack.Navigator
+      screenOptions={{
+        headerStyle: { backgroundColor: colors.bg },
+        headerTitleStyle: { color: colors.text },
+        headerShadowVisible: false,
+        contentStyle: { backgroundColor: colors.bg },
+      }}
+    >
+      <ProfileStack.Screen
+        name="ProfileHome"
+        component={ProfileScreen}
+        options={{ title: 'Profile' }}
+      />
+      <ProfileStack.Screen
+        name="EditProfile"
+        component={EditProfileScreen}
+        options={{ title: 'Edit Profile' }}
+      />
+    </ProfileStack.Navigator>
   );
 }
 
