@@ -15,6 +15,7 @@ export interface DailyLog {
   id: string;
   user: string;
   date: string; // ISO YYYY-MM-DD
+  day_number?: number;
   diet_ok: boolean;
   workout_1: boolean;
   workout_2: boolean;

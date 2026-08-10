@@ -67,6 +67,23 @@ export async function upsertMyLog(
   });
 
   const existing = await getMyLogForDate(dateISO);
+  debugLog('logs', 'Resolved upsert target record', {
+    userId,
+    dateISO,
+    existingLogId: existing?.id ?? null,
+    existingDate: existing?.date ?? null,
+    existingDayNumber: typeof existing?.day_number === 'number' ? existing.day_number : null,
+    existingCompleted: !!existing?.completed,
+  });
+  if (existing?.completed) {
+    const details = 'This day is already submitted and cannot be edited.';
+    debugWarn('logs', 'Blocked upsert for completed daily log', {
+      userId,
+      dateISO,
+      logId: existing.id,
+    });
+    throw new Error(details);
+  }
 
   // Create payload always includes user + date; update payload omits them to avoid
   // PocketBase re-validating the unique (user, date) index against a differently
@@ -80,14 +97,57 @@ export async function upsertMyLog(
 
   try {
     if (existing) {
-      const updated = await pb.collection('daily_logs').update<DailyLog>(existing.id, updateBody as any);
-      debugLog('logs', 'Updated existing daily log', {
-        userId,
-        dateISO,
-        logId: updated.id,
-        completed: updated.completed,
-      });
-      return updated;
+      try {
+        const updated = await pb.collection('daily_logs').update<DailyLog>(existing.id, updateBody as any);
+        debugLog('logs', 'Updated existing daily log', {
+          userId,
+          dateISO,
+          logId: updated.id,
+          completed: updated.completed,
+        });
+        return updated;
+      } catch (updateErr: any) {
+        debugWarn('logs', 'Primary update failed', {
+          userId,
+          dateISO,
+          logId: existing.id,
+          backendDate: existing.date,
+          backendDayNumber: typeof existing.day_number === 'number' ? existing.day_number : null,
+          responseMessage: updateErr?.response?.message ?? null,
+          responseData: updateErr?.response?.data ?? null,
+        });
+        if (shouldRetryUpdateWithIdentityFields(updateErr)) {
+          debugWarn('logs', 'Primary update failed; retrying with identity fields', {
+            userId,
+            dateISO,
+            logId: existing.id,
+          });
+
+          const canonicalDate = normalizeRecordDate(existing.date) || dateISO;
+          const retryBody: FormData | Record<string, unknown> = photoUri
+            ? buildFormData({ ...payload, user: userId, date: canonicalDate }, photoUri)
+            : { ...payload, user: userId, date: canonicalDate };
+
+          debugLog('logs', 'Retrying update with canonical identity fields', {
+            userId,
+            dateISO,
+            logId: existing.id,
+            canonicalDate,
+            hasPhotoUpload: !!photoUri,
+          });
+
+          const retried = await pb.collection('daily_logs').update<DailyLog>(existing.id, retryBody as any);
+          debugLog('logs', 'Recovered daily log update on retry', {
+            userId,
+            dateISO,
+            logId: retried.id,
+            completed: retried.completed,
+          });
+          return retried;
+        }
+
+        throw updateErr;
+      }
     }
     const created = await pb.collection('daily_logs').create<DailyLog>(createBody as any);
     debugLog('logs', 'Created new daily log', {
@@ -121,7 +181,12 @@ export async function upsertMyLog(
       userId,
       dateISO,
       hasPhotoUpload: !!photoUri,
+      existingLogId: existing?.id ?? null,
+      existingDate: existing?.date ?? null,
+      existingDayNumber: typeof existing?.day_number === 'number' ? existing.day_number : null,
       details,
+      responseMessage: err?.response?.message ?? null,
+      responseData: err?.response?.data ?? null,
       error: err,
     });
     throw new Error(details);
@@ -172,6 +237,24 @@ function normalizeRecordDate(value: unknown): string {
   return trimmed.length >= 10 ? trimmed.slice(0, 10) : trimmed;
 }
 
+function shouldRetryUpdateWithIdentityFields(err: any): boolean {
+  const status = Number(err?.status ?? err?.response?.status ?? 0);
+  if (status !== 400) {
+    return false;
+  }
+
+  const responseMessage = String(err?.response?.message ?? '').toLowerCase();
+  const dataMessage = String(err?.response?.data?.message ?? '').toLowerCase();
+  const topMessage = String(err?.message ?? '').toLowerCase();
+
+  // Retry only for opaque/generic failures where backend doesn't expose a field-level cause.
+  return (
+    responseMessage.includes('something went wrong')
+    || dataMessage.includes('something went wrong')
+    || topMessage.includes('something went wrong')
+  );
+}
+
 async function findExistingLogByCalendarDay(userId: string, dateISO: string): Promise<DailyLog | null> {
   const list = await pb.collection('daily_logs').getList<DailyLog>(1, 20, {
     filter: `user = "${userId}"`,
@@ -184,6 +267,9 @@ async function findExistingLogByCalendarDay(userId: string, dateISO: string): Pr
 function explainPocketBaseError(err: any, fallback: string): string {
   const data = err?.response?.data;
   if (!data || typeof data !== 'object') {
+    if (typeof err?.response?.message === 'string' && err.response.message.trim().length > 0) {
+      return err.response.message;
+    }
     return err?.message ?? fallback;
   }
 

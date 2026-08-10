@@ -85,7 +85,7 @@ export function FeedScreen() {
 function FeedCard({ log }: { log: DailyLog }) {
   const expandedUser = log.expand?.user;
   const name = expandedUser?.name ?? expandedUser?.email ?? 'Unknown';
-  const day = expandedUser?.current_day ?? '—';
+  const day = typeof log.day_number === 'number' && Number.isFinite(log.day_number) ? log.day_number : '—';
   const logDate = formatFriendlyDate(log.date.slice(0, 10));
   const progressPhotoUrl = photoUrl(log);
   const avatarUrl = getProfileAvatarUrl(expandedUser ?? null);

@@ -1,137 +1,32 @@
 /// <reference path="../pb_data/types.d.ts" />
 
-function toISODate(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function dateOffset(days) {
-  const now = new Date();
-  now.setDate(now.getDate() + days);
-  return toISODate(now);
-}
-
-function normalizeCurrentDay(value) {
-  const parsed = Number(value ?? 1);
-  if (!Number.isFinite(parsed)) return 1;
-  return Math.max(1, Math.floor(parsed));
-}
-
-function normalizeCompletedDays(value) {
-  const parsed = Number(value ?? 0);
-  if (!Number.isFinite(parsed)) return 0;
-  return Math.max(0, Math.floor(parsed));
-}
-
-function findDailyLogByUserAndDate(userId, isoDate) {
-  const escapedUser = String(userId).replace(/"/g, "\\\"");
-  const escapedDate = String(isoDate).replace(/"/g, "\\\"");
-
-  try {
-    return $app.findFirstRecordByFilter(
-      "daily_logs",
-      `user = \"${escapedUser}\" && date = \"${escapedDate}\"`,
-    );
-  } catch (err) {
-    return null;
-  }
-}
-
-function ensureMissedDayLog(userId, isoDate) {
-  const existing = findDailyLogByUserAndDate(userId, isoDate);
-  if (existing) {
-    return { record: existing, created: false };
-  }
-
-  const logsCollection = $app.findCollectionByNameOrId("daily_logs");
-  const log = new Record(logsCollection);
-  log.set("user", userId);
-  log.set("date", isoDate);
-  log.set("diet_ok", false);
-  log.set("workout_1", false);
-  log.set("workout_2", false);
-  log.set("water_ok", false);
-  log.set("reading_ok", false);
-  log.set("completed", false);
-  $app.save(log);
-  return { record: log, created: true };
-}
-
-function runRolloverForDate(rolloverDateISO, todayISO) {
-  const users = $app.findRecordsByFilter("users", "", "", 500, 0);
-  const summary = {
-    date: rolloverDateISO,
-    totalUsers: 0,
-    progressedUsers: 0,
-    resetUsers: 0,
-    createdMissedLogs: 0,
-    failedUsers: 0,
-    failures: [],
-  };
-
-  for (const user of users) {
-    if (!user) continue;
-    summary.totalUsers += 1;
-
-    const userId = user.getString("id");
-    try {
-      const rolloverLog = findDailyLogByUserAndDate(userId, rolloverDateISO);
-
-      if (rolloverLog && rolloverLog.getBool("completed")) {
-        const nextCurrentDay = normalizeCurrentDay(user.getInt("current_day")) + 1;
-        const nextCompletedDays = normalizeCompletedDays(user.getInt("completed_days")) + 1;
-
-        user.set("current_day", nextCurrentDay);
-        user.set("completed_days", nextCompletedDays);
-        $app.save(user);
-        summary.progressedUsers += 1;
-        continue;
-      }
-
-      const missed = ensureMissedDayLog(userId, rolloverDateISO);
-      if (missed.created) {
-        summary.createdMissedLogs += 1;
-      }
-
-      user.set("current_day", 1);
-      user.set("completed_days", 0);
-      user.set("start_date", todayISO);
-      $app.save(user);
-      summary.resetUsers += 1;
-    } catch (err) {
-      summary.failedUsers += 1;
-      summary.failures.push({
-        userId,
-        email: user.getString("email"),
-        currentDay: user.getInt("current_day"),
-        completedDays: user.getInt("completed_days"),
-        error: err ? String(err) : "Unknown error",
-      });
-    }
-  }
-
-  return summary;
-}
-
-function isEligibleForCompletion(record) {
-  return (
-    record.getBool("diet_ok") &&
-    record.getBool("workout_1") &&
-    record.getBool("workout_2") &&
-    record.getBool("water_ok") &&
-    record.getBool("reading_ok") &&
-    !!record.getString("progress_photo")
-  );
-}
-
 onRecordCreateRequest((e) => {
   if (!e.record) {
     return e.next();
   }
 
-  if (e.record.getBool("completed") && !isEligibleForCompletion(e.record)) {
+  const hooks = require(`${__hooks}/75hard.shared.js`);
+
+  const userId = e.record.getString("user");
+  const dateISO = e.record.getString("date");
+  hooks.hookLog("log-create", "Incoming daily_logs create request", {
+    userId,
+    dateISO,
+    completed: e.record.getBool("completed"),
+    hasProgressPhoto: !!e.record.getString("progress_photo"),
+    supportsDayNumber: hooks.canUseDayNumberField(),
+  });
+  if (hooks.canUseDayNumberField() && userId && dateISO) {
+    const resolved = hooks.resolveChallengeDayNumber(userId, dateISO);
+    e.record.set("day_number", resolved);
+    hooks.hookLog("log-create", "Assigned day_number on create", {
+      userId,
+      dateISO,
+      dayNumber: resolved,
+    });
+  }
+
+  if (e.record.getBool("completed") && !hooks.isEligibleForCompletion(e.record)) {
     throw new BadRequestError(
       "Cannot submit day until all tasks are completed and a progress photo is uploaded.",
       null,
@@ -146,15 +41,43 @@ onRecordUpdateRequest((e) => {
     return e.next();
   }
 
+  const hooks = require(`${__hooks}/75hard.shared.js`);
+
+  const userId = e.record.getString("user");
+  const dateISO = e.record.getString("date");
   const original = e.record.original();
+  hooks.hookLog("log-update", "Incoming daily_logs update request", {
+    userId,
+    dateISO,
+    originalDate: original?.getString?.("date") ?? null,
+    originalDayNumber: original ? original.getInt("day_number") : null,
+    originalCompleted: !!original?.getBool?.("completed"),
+    nextCompleted: e.record.getBool("completed"),
+    supportsDayNumber: hooks.canUseDayNumberField(),
+  });
+  if (hooks.canUseDayNumberField() && userId && dateISO) {
+    const resolved = hooks.resolveChallengeDayNumber(userId, dateISO);
+    e.record.set("day_number", resolved);
+    hooks.hookLog("log-update", "Assigned day_number on update", {
+      userId,
+      dateISO,
+      dayNumber: resolved,
+    });
+  }
+
   if (original.getBool("completed")) {
+    hooks.hookWarn("log-update", "Rejected update for completed log", {
+      userId,
+      dateISO,
+      logId: original.getString("id"),
+    });
     throw new BadRequestError(
       "This day is already submitted and cannot be edited.",
       null,
     );
   }
 
-  if (e.record.getBool("completed") && !isEligibleForCompletion(e.record)) {
+  if (e.record.getBool("completed") && !hooks.isEligibleForCompletion(e.record)) {
     throw new BadRequestError(
       "Cannot submit day until all tasks are completed and a progress photo is uploaded.",
       null,
@@ -165,172 +88,16 @@ onRecordUpdateRequest((e) => {
 }, "daily_logs");
 
 cronAdd("rollover-challenge-progress", "0 0 * * *", () => {
-  const normalizeCurrentDayLocal = (value) => {
-    const parsed = Number(value ?? 1);
-    if (!Number.isFinite(parsed)) return 1;
-    return Math.max(1, Math.floor(parsed));
-  };
-
-  const normalizeCompletedDaysLocal = (value) => {
-    const parsed = Number(value ?? 0);
-    if (!Number.isFinite(parsed)) return 0;
-    return Math.max(0, Math.floor(parsed));
-  };
-
-  const formatDate = (date) => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const day = String(date.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
-  };
-
-  const findDailyLogByUserAndDateLocal = (userId, isoDate) => {
-    const normalizeRecordDate = (value) => {
-      const text = String(value ?? "").trim();
-      return text.length >= 10 ? text.slice(0, 10) : text;
-    };
-
-    try {
-      const logs = $app.findRecordsByFilter("daily_logs", `user = \"${String(userId)}\"`, "", 200, 0);
-      for (const log of logs) {
-        if (!log) continue;
-        const dateValue = log.getString("date");
-        if (normalizeRecordDate(dateValue) === isoDate) {
-          return log;
-        }
-      }
-      return null;
-    } catch (err) {
-      return null;
-    }
-  };
-
-  const ensureMissedDayLogLocal = (userId, isoDate) => {
-    const existing = findDailyLogByUserAndDateLocal(userId, isoDate);
-    if (existing) {
-      return { record: existing, created: false };
-    }
-
-    const isUniqueConstraintError = (err) => {
-      const message = String(err ?? "").toLowerCase();
-      return (
-        message.includes("must be unique") ||
-        message.includes("already exists") ||
-        message.includes("duplicate") ||
-        message.includes("not_unique") ||
-        message.includes("unique constraint")
-      );
-    };
-
-    const logsCollection = $app.findCollectionByNameOrId("daily_logs");
-    const log = new Record(logsCollection);
-    log.set("user", userId);
-    log.set("date", isoDate);
-    log.set("diet_ok", false);
-    log.set("workout_1", false);
-    log.set("workout_2", false);
-    log.set("water_ok", false);
-    log.set("reading_ok", false);
-    log.set("completed", false);
-    try {
-      $app.save(log);
-      return { record: log, created: true };
-    } catch (err) {
-      if (isUniqueConstraintError(err)) {
-        const conflicted = findDailyLogByUserAndDateLocal(userId, isoDate);
-        if (conflicted) {
-          return { record: conflicted, created: false };
-        }
-      }
-      throw err;
-    }
-  };
-
-  const runRolloverForDateLocal = (rolloverDateISO, todayISO) => {
-    const users = $app.findRecordsByFilter("users", "", "", 500, 0);
-    const summary = {
-      date: rolloverDateISO,
-      totalUsers: 0,
-      progressedUsers: 0,
-      resetUsers: 0,
-      createdMissedLogs: 0,
-      autoCompletedLogs: 0,
-      failedUsers: 0,
-      failures: [],
-    };
-
-    for (const user of users) {
-      if (!user) continue;
-      summary.totalUsers += 1;
-
-      const userId = user.getString("id");
-      try {
-        const rolloverLog = findDailyLogByUserAndDateLocal(userId, rolloverDateISO);
-
-        let completedForRollover = false;
-        if (rolloverLog) {
-          const eligibleForCompletion =
-            rolloverLog.getBool("diet_ok") &&
-            rolloverLog.getBool("workout_1") &&
-            rolloverLog.getBool("workout_2") &&
-            rolloverLog.getBool("water_ok") &&
-            rolloverLog.getBool("reading_ok") &&
-            !!rolloverLog.getString("progress_photo");
-
-          if (!rolloverLog.getBool("completed") && eligibleForCompletion) {
-            rolloverLog.set("completed", true);
-            $app.save(rolloverLog);
-            summary.autoCompletedLogs += 1;
-          }
-
-          completedForRollover = rolloverLog.getBool("completed") || eligibleForCompletion;
-        }
-
-        if (completedForRollover) {
-          const nextCurrentDay = normalizeCurrentDayLocal(user.getInt("current_day")) + 1;
-          const nextCompletedDays =
-            normalizeCompletedDaysLocal(user.getInt("completed_days")) + 1;
-
-          user.set("current_day", nextCurrentDay);
-          user.set("completed_days", nextCompletedDays);
-          $app.save(user);
-          summary.progressedUsers += 1;
-          continue;
-        }
-
-        const missed = ensureMissedDayLogLocal(userId, rolloverDateISO);
-        if (missed.created) {
-          summary.createdMissedLogs += 1;
-        }
-
-        user.set("current_day", 1);
-        user.set("completed_days", 0);
-        user.set("start_date", todayISO);
-        $app.save(user);
-        summary.resetUsers += 1;
-      } catch (err) {
-        summary.failedUsers += 1;
-        summary.failures.push({
-          userId,
-          email: user.getString("email"),
-          currentDay: user.getInt("current_day"),
-          completedDays: user.getInt("completed_days"),
-          error: err ? String(err) : "Unknown error",
-        });
-      }
-    }
-
-    return summary;
-  };
+  const hooks = require(`${__hooks}/75hard.shared.js`);
 
   const now = new Date();
   const todayDate = new Date(now);
   const yesterdayDate = new Date(now);
   yesterdayDate.setDate(yesterdayDate.getDate() - 1);
 
-  const today = formatDate(todayDate);
-  const yesterday = formatDate(yesterdayDate);
-  const summary = runRolloverForDateLocal(yesterday, today);
+  const today = hooks.formatDate(todayDate);
+  const yesterday = hooks.formatDate(yesterdayDate);
+  const summary = hooks.runRolloverForDate(yesterday, today);
   if (summary.failedUsers > 0) {
     console.error("[rollover-challenge-progress] Completed with failures", summary);
   }
@@ -341,172 +108,16 @@ routerAdd(
   "/api/admin/rollover",
   (e) => {
     try {
-      const normalizeCurrentDayLocal = (value) => {
-        const parsed = Number(value ?? 1);
-        if (!Number.isFinite(parsed)) return 1;
-        return Math.max(1, Math.floor(parsed));
-      };
-
-      const normalizeCompletedDaysLocal = (value) => {
-        const parsed = Number(value ?? 0);
-        if (!Number.isFinite(parsed)) return 0;
-        return Math.max(0, Math.floor(parsed));
-      };
-
-      const formatDate = (date) => {
-        const year = date.getFullYear();
-        const month = String(date.getMonth() + 1).padStart(2, "0");
-        const day = String(date.getDate()).padStart(2, "0");
-        return `${year}-${month}-${day}`;
-      };
-
-      const findDailyLogByUserAndDateLocal = (userId, isoDate) => {
-        const normalizeRecordDate = (value) => {
-          const text = String(value ?? "").trim();
-          return text.length >= 10 ? text.slice(0, 10) : text;
-        };
-
-        try {
-          const logs = $app.findRecordsByFilter("daily_logs", `user = \"${String(userId)}\"`, "", 200, 0);
-          for (const log of logs) {
-            if (!log) continue;
-            const dateValue = log.getString("date");
-            if (normalizeRecordDate(dateValue) === isoDate) {
-              return log;
-            }
-          }
-          return null;
-        } catch (err) {
-          return null;
-        }
-      };
-
-      const ensureMissedDayLogLocal = (userId, isoDate) => {
-        const existing = findDailyLogByUserAndDateLocal(userId, isoDate);
-        if (existing) {
-          return { record: existing, created: false };
-        }
-
-        const isUniqueConstraintError = (err) => {
-          const message = String(err ?? "").toLowerCase();
-          return (
-            message.includes("must be unique") ||
-            message.includes("already exists") ||
-            message.includes("duplicate") ||
-            message.includes("not_unique") ||
-            message.includes("unique constraint")
-          );
-        };
-
-        const logsCollection = $app.findCollectionByNameOrId("daily_logs");
-        const log = new Record(logsCollection);
-        log.set("user", userId);
-        log.set("date", isoDate);
-        log.set("diet_ok", false);
-        log.set("workout_1", false);
-        log.set("workout_2", false);
-        log.set("water_ok", false);
-        log.set("reading_ok", false);
-        log.set("completed", false);
-        try {
-          $app.save(log);
-          return { record: log, created: true };
-        } catch (err) {
-          if (isUniqueConstraintError(err)) {
-            const conflicted = findDailyLogByUserAndDateLocal(userId, isoDate);
-            if (conflicted) {
-              return { record: conflicted, created: false };
-            }
-          }
-          throw err;
-        }
-      };
-
-      const runRolloverForDateLocal = (rolloverDateISO, todayISO) => {
-        const users = $app.findRecordsByFilter("users", "", "", 500, 0);
-        const summary = {
-          date: rolloverDateISO,
-          totalUsers: 0,
-          progressedUsers: 0,
-          resetUsers: 0,
-          createdMissedLogs: 0,
-          autoCompletedLogs: 0,
-          failedUsers: 0,
-          failures: [],
-        };
-
-        for (const user of users) {
-          if (!user) continue;
-          summary.totalUsers += 1;
-
-          const userId = user.getString("id");
-          try {
-            const rolloverLog = findDailyLogByUserAndDateLocal(userId, rolloverDateISO);
-
-            let completedForRollover = false;
-            if (rolloverLog) {
-              const eligibleForCompletion =
-                rolloverLog.getBool("diet_ok") &&
-                rolloverLog.getBool("workout_1") &&
-                rolloverLog.getBool("workout_2") &&
-                rolloverLog.getBool("water_ok") &&
-                rolloverLog.getBool("reading_ok") &&
-                !!rolloverLog.getString("progress_photo");
-
-              if (!rolloverLog.getBool("completed") && eligibleForCompletion) {
-                rolloverLog.set("completed", true);
-                $app.save(rolloverLog);
-                summary.autoCompletedLogs += 1;
-              }
-
-              completedForRollover = rolloverLog.getBool("completed") || eligibleForCompletion;
-            }
-
-            if (completedForRollover) {
-              const nextCurrentDay = normalizeCurrentDayLocal(user.getInt("current_day")) + 1;
-              const nextCompletedDays =
-                normalizeCompletedDaysLocal(user.getInt("completed_days")) + 1;
-
-              user.set("current_day", nextCurrentDay);
-              user.set("completed_days", nextCompletedDays);
-              $app.save(user);
-              summary.progressedUsers += 1;
-              continue;
-            }
-
-            const missed = ensureMissedDayLogLocal(userId, rolloverDateISO);
-            if (missed.created) {
-              summary.createdMissedLogs += 1;
-            }
-
-            user.set("current_day", 1);
-            user.set("completed_days", 0);
-            user.set("start_date", todayISO);
-            $app.save(user);
-            summary.resetUsers += 1;
-          } catch (err) {
-            summary.failedUsers += 1;
-            summary.failures.push({
-              userId,
-              email: user.getString("email"),
-              currentDay: user.getInt("current_day"),
-              completedDays: user.getInt("completed_days"),
-              error: err ? String(err) : "Unknown error",
-            });
-          }
-        }
-
-        return summary;
-      };
+      const hooks = require(`${__hooks}/75hard.shared.js`);
 
       const now = new Date();
       const todayDate = new Date(now);
       const rolloverDateObj = new Date(now);
       rolloverDateObj.setDate(rolloverDateObj.getDate() - 1);
 
-      const today = formatDate(todayDate);
-      const rolloverDate = formatDate(rolloverDateObj);
-      const summary = runRolloverForDateLocal(rolloverDate, today);
+      const today = hooks.formatDate(todayDate);
+      const rolloverDate = hooks.formatDate(rolloverDateObj);
+      const summary = hooks.runRolloverForDate(rolloverDate, today);
       const ok = summary.failedUsers === 0;
       return e.json(ok ? 200 : 207, {
         ok,
