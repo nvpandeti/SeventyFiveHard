@@ -32,3 +32,28 @@ export function getNextProgressAfterMidnight(
     completedDays: snapshot.completedDays + 1,
   };
 }
+
+export function getCurrentDayLogDayNumber(
+  previousDayCompleted: boolean,
+  previousDayNumber: unknown,
+): number {
+  if (!previousDayCompleted) {
+    return 1;
+  }
+
+  return toSafeInt(previousDayNumber, 1, 1) + 1;
+}
+
+export function getCurrentDayLogDayNumberRepair(
+  currentLogDayNumber: unknown,
+  previousDayCompleted: boolean,
+  previousDayNumber: unknown,
+): { expectedDayNumber: number; needsRepair: boolean } {
+  const expectedDayNumber = getCurrentDayLogDayNumber(previousDayCompleted, previousDayNumber);
+  const normalizedCurrent = toSafeInt(currentLogDayNumber, 1, 1);
+
+  return {
+    expectedDayNumber,
+    needsRepair: normalizedCurrent !== expectedDayNumber,
+  };
+}

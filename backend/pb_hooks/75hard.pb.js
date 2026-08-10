@@ -25,6 +25,28 @@ function normalizeCompletedDays(value) {
   return Math.max(0, Math.floor(parsed));
 }
 
+function normalizeDayNumber(value) {
+  const parsed = Number(value ?? 1);
+  if (!Number.isFinite(parsed)) return 1;
+  return Math.max(1, Math.floor(parsed));
+}
+
+function normalizeRecordDate(value) {
+  const text = String(value ?? "").trim();
+  return text.length >= 10 ? text.slice(0, 10) : text;
+}
+
+function offsetISODate(isoDate, days) {
+  const normalized = normalizeRecordDate(isoDate);
+  const date = new Date(`${normalized}T00:00:00`);
+  if (Number.isNaN(date.getTime())) {
+    return normalized;
+  }
+
+  date.setDate(date.getDate() + days);
+  return toISODate(date);
+}
+
 function findDailyLogByUserAndDate(userId, isoDate) {
   const escapedUser = String(userId).replace(/"/g, "\\\"");
   const escapedDate = String(isoDate).replace(/"/g, "\\\"");
@@ -35,8 +57,45 @@ function findDailyLogByUserAndDate(userId, isoDate) {
       `user = \"${escapedUser}\" && date = \"${escapedDate}\"`,
     );
   } catch (err) {
-    return null;
+    try {
+      const logs = $app.findRecordsByFilter("daily_logs", `user = \"${escapedUser}\"`, "", 5000, 0);
+      for (const log of logs) {
+        if (!log) continue;
+        if (normalizeRecordDate(log.getString("date")) === isoDate) {
+          return log;
+        }
+      }
+      return null;
+    } catch (fallbackErr) {
+      return null;
+    }
   }
+}
+
+function resolveChallengeDayNumber(userId, isoDate) {
+  const previousDate = offsetISODate(isoDate, -1);
+  const previousLog = findDailyLogByUserAndDate(userId, previousDate);
+  if (!previousLog || !previousLog.getBool("completed")) {
+    return 1;
+  }
+
+  return normalizeDayNumber(previousLog.getInt("day_number")) + 1;
+}
+
+function syncCurrentDayLogDayNumber(userId, isoDate) {
+  const log = findDailyLogByUserAndDate(userId, isoDate);
+  if (!log) {
+    return false;
+  }
+
+  const nextDayNumber = resolveChallengeDayNumber(userId, isoDate);
+  if (normalizeDayNumber(log.getInt("day_number")) === nextDayNumber) {
+    return false;
+  }
+
+  log.set("day_number", nextDayNumber);
+  $app.save(log);
+  return true;
 }
 
 function ensureMissedDayLog(userId, isoDate) {
@@ -55,6 +114,7 @@ function ensureMissedDayLog(userId, isoDate) {
   log.set("water_ok", false);
   log.set("reading_ok", false);
   log.set("completed", false);
+  log.set("day_number", resolveChallengeDayNumber(userId, isoDate));
   $app.save(log);
   return { record: log, created: true };
 }
@@ -131,6 +191,12 @@ onRecordCreateRequest((e) => {
     return e.next();
   }
 
+  const userId = e.record.getString("user");
+  const dateISO = e.record.getString("date");
+  if (userId && dateISO) {
+    e.record.set("day_number", resolveChallengeDayNumber(userId, dateISO));
+  }
+
   if (e.record.getBool("completed") && !isEligibleForCompletion(e.record)) {
     throw new BadRequestError(
       "Cannot submit day until all tasks are completed and a progress photo is uploaded.",
@@ -144,6 +210,12 @@ onRecordCreateRequest((e) => {
 onRecordUpdateRequest((e) => {
   if (!e.record) {
     return e.next();
+  }
+
+  const userId = e.record.getString("user");
+  const dateISO = e.record.getString("date");
+  if (userId && dateISO) {
+    e.record.set("day_number", resolveChallengeDayNumber(userId, dateISO));
   }
 
   const original = e.record.original();
@@ -185,21 +257,8 @@ cronAdd("rollover-challenge-progress", "0 0 * * *", () => {
   };
 
   const findDailyLogByUserAndDateLocal = (userId, isoDate) => {
-    const normalizeRecordDate = (value) => {
-      const text = String(value ?? "").trim();
-      return text.length >= 10 ? text.slice(0, 10) : text;
-    };
-
     try {
-      const logs = $app.findRecordsByFilter("daily_logs", `user = \"${String(userId)}\"`, "", 200, 0);
-      for (const log of logs) {
-        if (!log) continue;
-        const dateValue = log.getString("date");
-        if (normalizeRecordDate(dateValue) === isoDate) {
-          return log;
-        }
-      }
-      return null;
+      return findDailyLogByUserAndDate(userId, isoDate);
     } catch (err) {
       return null;
     }
@@ -232,6 +291,7 @@ cronAdd("rollover-challenge-progress", "0 0 * * *", () => {
     log.set("water_ok", false);
     log.set("reading_ok", false);
     log.set("completed", false);
+    log.set("day_number", resolveChallengeDayNumber(userId, isoDate));
     try {
       $app.save(log);
       return { record: log, created: true };
@@ -294,6 +354,7 @@ cronAdd("rollover-challenge-progress", "0 0 * * *", () => {
           user.set("current_day", nextCurrentDay);
           user.set("completed_days", nextCompletedDays);
           $app.save(user);
+          syncCurrentDayLogDayNumber(userId, todayISO);
           summary.progressedUsers += 1;
           continue;
         }
@@ -307,6 +368,7 @@ cronAdd("rollover-challenge-progress", "0 0 * * *", () => {
         user.set("completed_days", 0);
         user.set("start_date", todayISO);
         $app.save(user);
+        syncCurrentDayLogDayNumber(userId, todayISO);
         summary.resetUsers += 1;
       } catch (err) {
         summary.failedUsers += 1;
@@ -361,21 +423,8 @@ routerAdd(
       };
 
       const findDailyLogByUserAndDateLocal = (userId, isoDate) => {
-        const normalizeRecordDate = (value) => {
-          const text = String(value ?? "").trim();
-          return text.length >= 10 ? text.slice(0, 10) : text;
-        };
-
         try {
-          const logs = $app.findRecordsByFilter("daily_logs", `user = \"${String(userId)}\"`, "", 200, 0);
-          for (const log of logs) {
-            if (!log) continue;
-            const dateValue = log.getString("date");
-            if (normalizeRecordDate(dateValue) === isoDate) {
-              return log;
-            }
-          }
-          return null;
+          return findDailyLogByUserAndDate(userId, isoDate);
         } catch (err) {
           return null;
         }
@@ -408,6 +457,7 @@ routerAdd(
         log.set("water_ok", false);
         log.set("reading_ok", false);
         log.set("completed", false);
+        log.set("day_number", resolveChallengeDayNumber(userId, isoDate));
         try {
           $app.save(log);
           return { record: log, created: true };
@@ -470,6 +520,7 @@ routerAdd(
               user.set("current_day", nextCurrentDay);
               user.set("completed_days", nextCompletedDays);
               $app.save(user);
+              syncCurrentDayLogDayNumber(userId, todayISO);
               summary.progressedUsers += 1;
               continue;
             }
@@ -483,6 +534,7 @@ routerAdd(
             user.set("completed_days", 0);
             user.set("start_date", todayISO);
             $app.save(user);
+            syncCurrentDayLogDayNumber(userId, todayISO);
             summary.resetUsers += 1;
           } catch (err) {
             summary.failedUsers += 1;

@@ -33,6 +33,16 @@
         "name": "date",
         "required": true
       },
+      {
+        "id": "number_day_number_daily_logs",
+        "type": "number",
+        "name": "day_number",
+        "min": 1,
+        "onlyInt": true,
+        "presentable": false,
+        "required": false,
+        "system": false
+      },
       { "id": "bool_diet_ok",    "type": "bool", "name": "diet_ok" },
       { "id": "bool_workout_1",  "type": "bool", "name": "workout_1" },
       { "id": "bool_workout_2",  "type": "bool", "name": "workout_2" },
