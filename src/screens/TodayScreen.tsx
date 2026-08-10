@@ -11,9 +11,16 @@ import {
 } from 'react-native';
 import { Button } from '../components/Button';
 import { TaskCheckItem } from '../components/TaskCheckItem';
+import {
+  DEBUG_LOGS,
+  PB_SUPERUSER_EMAIL,
+  PB_SUPERUSER_PASSWORD,
+  SHOW_DEBUG_RUN_ROLLOVER_BUTTON,
+} from '../config';
 import { useAuth } from '../context/AuthContext';
 import { debugError, debugLog, debugWarn } from '../lib/debug';
 import { getMyLogForDate, photoUrl, upsertMyLog } from '../lib/logs';
+import { pb } from '../lib/pocketbase';
 import { colors, radius, spacing, typography } from '../theme';
 import type { DailyLog, TaskKey } from '../types';
 import { TASKS } from '../types';
@@ -36,6 +43,8 @@ export function TodayScreen() {
   const [photoPreviewUri, setPhotoPreviewUri] = useState<string | null>(null);
   const [savedPhotoUrl, setSavedPhotoUrl] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [rolloverRunning, setRolloverRunning] = useState(false);
+  const [rolloverLastError, setRolloverLastError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -180,6 +189,122 @@ export function TodayScreen() {
     }
   }
 
+  async function runManualRollover() {
+    setRolloverRunning(true);
+    setRolloverLastError(null);
+    debugLog('today', 'Manual rollover requested from debug tool');
+    try {
+      let token = '';
+      const hasSignedInToken = pb.authStore.isValid && !!pb.authStore.token;
+      const hasSuperCreds = !!PB_SUPERUSER_EMAIL && !!PB_SUPERUSER_PASSWORD;
+
+      debugLog('today', 'Manual rollover auth strategy', {
+        baseUrl: pb.baseUrl,
+        hasSignedInToken,
+        hasSuperCreds,
+      });
+
+      if (PB_SUPERUSER_EMAIL && PB_SUPERUSER_PASSWORD) {
+        const authUrl = `${pb.baseUrl}/api/collections/_superusers/auth-with-password`;
+        debugLog('today', 'Requesting temporary superuser token from debug env vars', {
+          url: authUrl,
+          identity: PB_SUPERUSER_EMAIL,
+        });
+        const authResponse = await fetch(authUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            identity: PB_SUPERUSER_EMAIL,
+            password: PB_SUPERUSER_PASSWORD,
+          }),
+        });
+
+        const authRaw = await authResponse.text();
+        let authData: any = null;
+        try {
+          authData = authRaw ? JSON.parse(authRaw) : null;
+        } catch {
+          authData = { raw: authRaw };
+        }
+
+        debugLog('today', 'Superuser auth response received', {
+          status: authResponse.status,
+          statusText: authResponse.statusText,
+          ok: authResponse.ok,
+          body: authData,
+        });
+
+        if (!authResponse.ok) {
+          const message = typeof authData?.message === 'string' ? authData.message : authRaw;
+          throw new Error(message);
+        }
+
+        token = typeof authData?.token === 'string' ? authData.token : '';
+      }
+
+      if (!token && pb.authStore.isValid) {
+        debugLog('today', 'Falling back to existing auth token for rollover request');
+        token = pb.authStore.token;
+      }
+
+      if (!token) {
+        throw new Error(
+          'No valid auth token. Sign in as a superuser, or set EXPO_PUBLIC_PB_SUPERUSER_EMAIL and EXPO_PUBLIC_PB_SUPERUSER_PASSWORD in .env.',
+        );
+      }
+
+      const rolloverUrl = `${pb.baseUrl}/api/admin/rollover`;
+      debugLog('today', 'Calling manual rollover endpoint', {
+        url: rolloverUrl,
+      });
+
+      const response = await fetch(rolloverUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const raw = await response.text();
+      let data: any = null;
+      try {
+        data = raw ? JSON.parse(raw) : null;
+      } catch {
+        data = { raw };
+      }
+
+      debugLog('today', 'Manual rollover response received', {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok,
+        body: data,
+      });
+
+      if (!response.ok && response.status !== 207) {
+        const message = typeof data?.message === 'string' ? data.message : raw;
+        throw new Error(message);
+      }
+
+      await refreshUser();
+      await load();
+
+      debugLog('today', 'Manual rollover succeeded', {
+        status: response.status,
+        summary: data?.summary ?? null,
+      });
+      Alert.alert('Rollover complete', JSON.stringify(data?.summary ?? {}, null, 2));
+    } catch (err: any) {
+      debugError('today', 'Manual rollover failed', err);
+      const details = err?.message ?? 'Unable to run manual rollover.';
+      setRolloverLastError(details);
+      Alert.alert('Rollover failed', details);
+    } finally {
+      setRolloverRunning(false);
+    }
+  }
+
   const previewSource = photoPreviewUri
     ? { uri: photoPreviewUri }
     : savedPhotoUrl
@@ -263,6 +388,22 @@ export function TodayScreen() {
               Check off all 5 tasks and add today&apos;s photo to lock in the day.
             </Text>
           ) : null}
+
+          {SHOW_DEBUG_RUN_ROLLOVER_BUTTON ? (
+            <>
+              <View style={{ height: spacing.lg }} />
+              <Button
+                title="Debug: Run Rollover"
+                variant="danger"
+                onPress={runManualRollover}
+                loading={rolloverRunning}
+                disabled={saving || loading || refreshing}
+              />
+              {rolloverLastError ? (
+                <Text style={styles.debugErrorText}>Last rollover error: {rolloverLastError}</Text>
+              ) : null}
+            </>
+          ) : null}
         </>
       )}
     </ScrollView>
@@ -303,5 +444,11 @@ const styles = StyleSheet.create({
     color: colors.textDim,
     textAlign: 'center',
     marginTop: spacing.sm,
+  },
+  debugErrorText: {
+    ...typography.small,
+    color: colors.warning,
+    marginTop: spacing.sm,
+    textAlign: 'center',
   },
 });
