@@ -7,6 +7,7 @@ import React, {
   useState,
 } from 'react';
 import { pb, hydrateAuth } from '../lib/pocketbase';
+import { explainAuthError } from '../lib/pocketbaseError';
 import { debugError, debugLog, debugWarn } from '../lib/debug';
 import { createPocketBaseFilePart } from '../lib/pocketbaseFile';
 import type { AppUser } from '../types';
@@ -85,7 +86,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
     } catch (error) {
       debugError('auth', 'Sign-in failed', error);
-      throw error;
+      throw new Error(explainAuthError(error));
     }
   }, []);
 
