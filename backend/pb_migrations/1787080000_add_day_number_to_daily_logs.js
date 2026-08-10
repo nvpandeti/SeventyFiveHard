@@ -1,16 +1,19 @@
 /// <reference path="../pb_data/types.d.ts" />
 
+/** @param {unknown} value */
 function normalizeDayNumber(value) {
   const parsed = Number(value ?? 1);
   if (!Number.isFinite(parsed)) return 1;
   return Math.max(1, Math.floor(parsed));
 }
 
+/** @param {unknown} value */
 function normalizeRecordDate(value) {
   const text = String(value ?? "").trim();
   return text.length >= 10 ? text.slice(0, 10) : text;
 }
 
+/** @param {Date} date */
 function toISODate(date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -18,6 +21,10 @@ function toISODate(date) {
   return `${year}-${month}-${day}`;
 }
 
+/**
+ * @param {string} isoDate
+ * @param {number} days
+ */
 function offsetISODate(isoDate, days) {
   const normalized = normalizeRecordDate(isoDate);
   const date = new Date(`${normalized}T00:00:00`);
@@ -29,6 +36,11 @@ function offsetISODate(isoDate, days) {
   return toISODate(date);
 }
 
+/**
+ * @param {any} app
+ * @param {string} userId
+ * @param {string} isoDate
+ */
 function findDailyLogByUserAndDate(app, userId, isoDate) {
   const escapedUser = String(userId).replace(/"/g, "\\\"");
   const escapedDate = String(isoDate).replace(/"/g, "\\\"");
@@ -50,6 +62,11 @@ function findDailyLogByUserAndDate(app, userId, isoDate) {
   }
 }
 
+/**
+ * @param {any} app
+ * @param {string} userId
+ * @param {string} isoDate
+ */
 function resolveChallengeDayNumber(app, userId, isoDate) {
   const previousDate = offsetISODate(isoDate, -1);
   const previousLog = findDailyLogByUserAndDate(app, userId, previousDate);
@@ -60,6 +77,7 @@ function resolveChallengeDayNumber(app, userId, isoDate) {
   return normalizeDayNumber(previousLog.getInt("day_number")) + 1;
 }
 
+/** @param {any} app */
 function backfillDailyLogDayNumbers(app) {
   const logs = app.findRecordsByFilter("daily_logs", "", "", 5000, 0);
   const sorted = [...logs].sort((left, right) => {

@@ -97,4 +97,82 @@ describe('upsertMyLog', () => {
     expect(update.mock.calls[0][1]).not.toHaveProperty('date');
     expect(result.id).toBe('existing_log_id');
   });
+
+  it('throws a clear error when attempting to edit an already completed day', async () => {
+    const payload = {
+      diet_ok: false,
+      workout_1: false,
+      workout_2: false,
+      water_ok: false,
+      reading_ok: false,
+      completed: false,
+    };
+
+    getFirstListItem.mockResolvedValueOnce({
+      id: 'completed_log_id',
+      user: 'user_1',
+      date: '2026-08-10',
+      ...payload,
+      completed: true,
+    });
+
+    const { upsertMyLog } = await import('./logs');
+
+    await expect(upsertMyLog('2026-08-10', payload)).rejects.toThrow(
+      'This day is already submitted and cannot be edited.',
+    );
+
+    expect(update).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('retries update with identity fields after generic 400 failure', async () => {
+    const payload = {
+      diet_ok: false,
+      workout_1: true,
+      workout_2: false,
+      water_ok: true,
+      reading_ok: false,
+      completed: false,
+    };
+
+    getFirstListItem.mockResolvedValueOnce({
+      id: 'existing_log_id',
+      user: 'user_1',
+      date: '2026-08-10 00:00:00.000Z',
+      ...payload,
+      completed: false,
+    });
+
+    update
+      .mockRejectedValueOnce({
+        status: 400,
+        response: {
+          message: 'Something went wrong while processing your request.',
+          data: { message: 'Something went wrong while processing your request.' },
+        },
+      })
+      .mockResolvedValueOnce({
+        id: 'existing_log_id',
+        user: 'user_1',
+        date: '2026-08-10',
+        ...payload,
+        completed: false,
+      });
+
+    const { upsertMyLog } = await import('./logs');
+
+    const result = await upsertMyLog('2026-08-10', payload);
+
+    expect(update).toHaveBeenCalledTimes(2);
+    expect(update.mock.calls[0][1]).not.toHaveProperty('user');
+    expect(update.mock.calls[0][1]).not.toHaveProperty('date');
+    expect(update.mock.calls[1][1]).toMatchObject({
+      user: 'user_1',
+      date: '2026-08-10',
+      completed: false,
+      workout_1: true,
+    });
+    expect(result.id).toBe('existing_log_id');
+  });
 });
