@@ -68,14 +68,19 @@ export async function upsertMyLog(
 
   const existing = await getMyLogForDate(dateISO);
 
-  // Use FormData when uploading a photo so PocketBase can accept the file.
-  const body: FormData | Record<string, unknown> = photoUri
+  // Create payload always includes user + date; update payload omits them to avoid
+  // PocketBase re-validating the unique (user, date) index against a differently
+  // normalised date string (e.g. stored "2026-08-09 00:00:00.000Z" vs sent "2026-08-09").
+  const createBody: FormData | Record<string, unknown> = photoUri
     ? buildFormData({ ...payload, user: userId, date: dateISO }, photoUri)
     : { ...payload, user: userId, date: dateISO };
+  const updateBody: FormData | Record<string, unknown> = photoUri
+    ? buildFormData({ ...payload }, photoUri)
+    : { ...payload };
 
   try {
     if (existing) {
-      const updated = await pb.collection('daily_logs').update<DailyLog>(existing.id, body as any);
+      const updated = await pb.collection('daily_logs').update<DailyLog>(existing.id, updateBody as any);
       debugLog('logs', 'Updated existing daily log', {
         userId,
         dateISO,
@@ -84,7 +89,7 @@ export async function upsertMyLog(
       });
       return updated;
     }
-    const created = await pb.collection('daily_logs').create<DailyLog>(body as any);
+    const created = await pb.collection('daily_logs').create<DailyLog>(createBody as any);
     debugLog('logs', 'Created new daily log', {
       userId,
       dateISO,
@@ -100,7 +105,7 @@ export async function upsertMyLog(
       });
       const conflicted = await findExistingLogByCalendarDay(userId, dateISO);
       if (conflicted) {
-        const recovered = await pb.collection('daily_logs').update<DailyLog>(conflicted.id, body as any);
+        const recovered = await pb.collection('daily_logs').update<DailyLog>(conflicted.id, updateBody as any);
         debugLog('logs', 'Recovered from unique create conflict by updating existing log', {
           userId,
           dateISO,
@@ -124,15 +129,40 @@ export async function upsertMyLog(
 }
 
 function isUniqueCreateConflict(err: any): boolean {
+  const status = Number(err?.status ?? err?.response?.status ?? 0);
+  if (status !== 0 && status !== 400 && status !== 409) {
+    return false;
+  }
+
+  const messages: string[] = [];
   const data = err?.response?.data;
-  if (!data || typeof data !== 'object') return false;
+  if (typeof err?.message === 'string') messages.push(err.message);
+  if (typeof err?.response?.message === 'string') messages.push(err.response.message);
 
-  const hasDateUnique = typeof (data as any)?.date?.message === 'string'
-    && (data as any).date.message.includes('Value must be unique');
-  const hasUserUnique = typeof (data as any)?.user?.message === 'string'
-    && (data as any).user.message.includes('Value must be unique');
+  if (data && typeof data === 'object') {
+    Object.values(data).forEach((value) => {
+      if (value && typeof value === 'object' && typeof (value as any).message === 'string') {
+        messages.push((value as any).message);
+      }
+      if (value && typeof value === 'object' && typeof (value as any).code === 'string') {
+        messages.push((value as any).code);
+      }
+      if (typeof value === 'string') {
+        messages.push(value);
+      }
+    });
+  }
 
-  return hasDateUnique || hasUserUnique;
+  const blob = messages.join(' | ').toLowerCase();
+  if (!blob) return false;
+
+  return (
+    blob.includes('must be unique')
+    || blob.includes('already exists')
+    || blob.includes('duplicate')
+    || blob.includes('not_unique')
+    || blob.includes('unique constraint')
+  );
 }
 
 function normalizeRecordDate(value: unknown): string {

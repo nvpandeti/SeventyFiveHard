@@ -22,5 +22,22 @@ function parseBooleanEnv(raw?: string): boolean {
  */
 export const DEBUG_LOGS = parseBooleanEnv(process.env.EXPO_PUBLIC_DEBUG_LOGS);
 
+/**
+ * Optional debug-only PocketBase superuser credentials for manual admin actions
+ * from the app (e.g. triggering rollover).
+ */
+export const PB_SUPERUSER_EMAIL =
+  process.env.EXPO_PUBLIC_PB_SUPERUSER_EMAIL?.trim() || '';
+export const PB_SUPERUSER_PASSWORD =
+  process.env.EXPO_PUBLIC_PB_SUPERUSER_PASSWORD?.trim() || '';
+
+/**
+ * Toggle visibility of the manual rollover debug button on Today screen.
+ * Set EXPO_PUBLIC_SHOW_DEBUG_RUN_ROLLOVER_BUTTON=true in .env to show it.
+ */
+export const SHOW_DEBUG_RUN_ROLLOVER_BUTTON = parseBooleanEnv(
+  process.env.EXPO_PUBLIC_SHOW_DEBUG_RUN_ROLLOVER_BUTTON,
+);
+
 /** Total number of days in the 75 Hard challenge. */
 export const CHALLENGE_LENGTH = 75;
