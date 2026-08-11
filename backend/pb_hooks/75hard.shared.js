@@ -205,6 +205,33 @@ function isEligibleForCompletion(record) {
   );
 }
 
+function incrementUserCompletedDays(userId) {
+  if (!userId) return false;
+  try {
+    const user = $app.findRecordById("users", userId);
+    if (!user) {
+      hookWarn("completion", "Could not find user to increment completed_days", {
+        userId,
+      });
+      return false;
+    }
+    const nextValue = normalizeCompletedDays(user.getInt("completed_days")) + 1;
+    user.set("completed_days", nextValue);
+    $app.save(user);
+    hookLog("completion", "Incremented user.completed_days on day completion", {
+      userId,
+      completedDays: nextValue,
+    });
+    return true;
+  } catch (err) {
+    hookWarn("completion", "Failed to increment user.completed_days", {
+      userId,
+      error: String(err ?? "unknown"),
+    });
+    return false;
+  }
+}
+
 function runRolloverForDate(rolloverDateISO, todayISO) {
   const users = $app.findRecordsByFilter("users", "", "", 500, 0);
   const summary = {
@@ -241,10 +268,7 @@ function runRolloverForDate(rolloverDateISO, todayISO) {
 
       if (completedForRollover) {
         const nextCurrentDay = normalizeCurrentDay(user.getInt("current_day")) + 1;
-        const nextCompletedDays = normalizeCompletedDays(user.getInt("completed_days")) + 1;
-
         user.set("current_day", nextCurrentDay);
-        user.set("completed_days", nextCompletedDays);
         $app.save(user);
         syncCurrentDayLogDayNumber(userId, todayISO);
         summary.progressedUsers += 1;
@@ -284,6 +308,7 @@ module.exports = {
   findDailyLogByUserAndDate,
   hookLog,
   hookWarn,
+  incrementUserCompletedDays,
   isEligibleForCompletion,
   normalizeCompletedDays,
   normalizeCurrentDay,

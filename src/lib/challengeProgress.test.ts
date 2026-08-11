@@ -14,6 +14,13 @@ describe('getProgressSnapshot', () => {
       completedDays: 0,
     });
   });
+
+  it('preserves existing completed day counts on non-completion saves', () => {
+    expect(getProgressSnapshot({ current_day: 18, completed_days: 17 })).toEqual({
+      currentDay: 18,
+      completedDays: 17,
+    });
+  });
 });
 
 describe('getNextProgressAfterMidnight', () => {
@@ -33,6 +40,17 @@ describe('getNextProgressAfterMidnight', () => {
     expect(
       getNextProgressAfterMidnight({ current_day: 44, completed_days: 43 }, false),
     ).toEqual({ currentDay: 1, completedDays: 0 });
+  });
+
+  it('does not increment completed count before midnight while a day is only saved in progress', () => {
+    const snapshot = getProgressSnapshot({ current_day: 32, completed_days: 31 });
+    expect(snapshot).toEqual({ currentDay: 32, completedDays: 31 });
+  });
+
+  it('recovers safely from invalid persisted progress values before rollover math', () => {
+    expect(
+      getNextProgressAfterMidnight({ current_day: Number.NaN, completed_days: Number.NaN }, true),
+    ).toEqual({ currentDay: 2, completedDays: 1 });
   });
 });
 
