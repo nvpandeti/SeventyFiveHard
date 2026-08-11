@@ -87,6 +87,49 @@ onRecordUpdateRequest((e) => {
   return e.next();
 }, "daily_logs");
 
+onRecordAfterCreateSuccess((e) => {
+  if (!e.record) {
+    return;
+  }
+
+  const hooks = require(`${__hooks}/75hard.shared.js`);
+  if (!e.record.getBool("completed")) {
+    return;
+  }
+
+  const userId = e.record.getString("user");
+  const dateISO = e.record.getString("date");
+  hooks.hookLog("log-create", "Persisted completed daily log", {
+    userId,
+    dateISO,
+    logId: e.record.getString("id"),
+  });
+  hooks.incrementUserCompletedDays(userId);
+}, "daily_logs");
+
+onRecordAfterUpdateSuccess((e) => {
+  if (!e.record) {
+    return;
+  }
+
+  const hooks = require(`${__hooks}/75hard.shared.js`);
+  const original = e.record.original();
+  const wasCompleted = !!original?.getBool?.("completed");
+  const nowCompleted = e.record.getBool("completed");
+  if (wasCompleted || !nowCompleted) {
+    return;
+  }
+
+  const userId = e.record.getString("user");
+  const dateISO = e.record.getString("date");
+  hooks.hookLog("log-update", "Persisted completion transition for daily log", {
+    userId,
+    dateISO,
+    logId: e.record.getString("id"),
+  });
+  hooks.incrementUserCompletedDays(userId);
+}, "daily_logs");
+
 cronAdd("rollover-challenge-progress", "0 0 * * *", () => {
   const hooks = require(`${__hooks}/75hard.shared.js`);
 
