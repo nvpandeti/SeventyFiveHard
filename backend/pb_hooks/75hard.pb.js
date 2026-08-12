@@ -132,7 +132,10 @@ onRecordAfterUpdateSuccess((e) => {
 
 cronAdd("rollover-challenge-progress", "*/5 * * * *", () => {
   const hooks = require(`${__hooks}/75hard.shared.js`);
-  const summary = hooks.runScheduledRollover({ trigger: "cron" });
+  const summary = hooks.runScheduledRollover({
+    trigger: "cron",
+    initializeMissingSchedules: false,
+  });
   if (summary.failedUsers > 0) {
     console.error("[rollover-challenge-progress] Completed with failures", summary);
   }
@@ -144,7 +147,10 @@ routerAdd(
   (e) => {
     try {
       const hooks = require(`${__hooks}/75hard.shared.js`);
-      const summary = hooks.runScheduledRollover({ trigger: "manual_admin" });
+      const summary = hooks.runScheduledRollover({
+        trigger: "manual_admin",
+        initializeMissingSchedules: true,
+      });
       const ok = summary.failedUsers === 0;
       return e.json(ok ? 200 : 207, {
         ok,
