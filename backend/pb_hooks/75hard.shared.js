@@ -63,7 +63,11 @@ function parseDateTimeValue(value) {
   }
 
   try {
-    return new DateTime(text);
+    const dt = new DateTime(text);
+    if (dt && typeof dt.isZero === "function" && dt.isZero()) {
+      return null;
+    }
+    return dt;
   } catch (err) {
     return null;
   }
@@ -100,6 +104,26 @@ function canUsePerUserRolloverFields() {
   }
 }
 
+function initializeUserRolloverSchedule(user, referenceDateTime) {
+  if (!user || !canUsePerUserRolloverFields()) {
+    return false;
+  }
+
+  const schedule = computeUserRolloverSchedule(user, referenceDateTime);
+  const currentTimezone = normalizeTimezone(user.getString("timezone"));
+  const currentNext = String(user.getString("next_rollover_at_utc") || "");
+  const nextValue = schedule.nextRolloverAtUTC.string();
+
+  if (currentTimezone === schedule.timezoneName && currentNext === nextValue) {
+    return false;
+  }
+
+  user.set("timezone", schedule.timezoneName);
+  user.set("next_rollover_at_utc", nextValue);
+  $app.save(user);
+  return true;
+}
+
 function hookLog(scope, message, payload) {
   try {
     const suffix = payload ? ` ${JSON.stringify(payload)}` : "";
@@ -118,19 +142,23 @@ function hookWarn(scope, message, payload) {
   }
 }
 
+let __dayNumberFieldCache = { value: null, expiresAt: 0 };
 function canUseDayNumberField() {
+  const now = Date.now();
+  if (__dayNumberFieldCache.value !== null && __dayNumberFieldCache.expiresAt > now) {
+    return __dayNumberFieldCache.value;
+  }
   try {
     const collection = $app.findCollectionByNameOrId("daily_logs");
     const fields = collection && collection.fields ? collection.fields : null;
     const supported = !!(fields && fields.getByName("day_number"));
-    hookLog("schema", "Resolved day_number field support", {
-      supported,
-    });
+    __dayNumberFieldCache = { value: supported, expiresAt: now + 60000 };
     return supported;
   } catch (err) {
     hookWarn("schema", "Could not resolve day_number field support", {
       error: String(err ?? "unknown"),
     });
+    __dayNumberFieldCache = { value: false, expiresAt: now + 5000 };
     return false;
   }
 }
@@ -186,24 +214,33 @@ function resolveChallengeDayNumber(userId, isoDate) {
   return nextDayNumber;
 }
 
-function syncCurrentDayLogDayNumber(userId, isoDate) {
+function syncCurrentDayLogDayNumberDetails(userId, isoDate, existingLog) {
   if (!canUseDayNumberField()) {
-    return false;
+    return { changed: false, beforeData: null, afterData: null };
   }
 
-  const log = findDailyLogByUserAndDate(userId, isoDate);
+  const log = existingLog || findDailyLogByUserAndDate(userId, isoDate);
   if (!log) {
-    return false;
+    return { changed: false, beforeData: null, afterData: null };
   }
 
+  const beforeData = snapshotDailyLogRecord(log);
   const nextDayNumber = resolveChallengeDayNumber(userId, isoDate);
   if (normalizeDayNumber(log.getInt("day_number")) === nextDayNumber) {
-    return false;
+    return { changed: false, beforeData, afterData: beforeData };
   }
 
   log.set("day_number", nextDayNumber);
   $app.save(log);
-  return true;
+  return {
+    changed: true,
+    beforeData,
+    afterData: snapshotDailyLogRecord(log),
+  };
+}
+
+function syncCurrentDayLogDayNumber(userId, isoDate) {
+  return syncCurrentDayLogDayNumberDetails(userId, isoDate, null).changed;
 }
 
 function isUniqueConstraintError(err) {
@@ -302,12 +339,14 @@ function snapshotUserRecord(user) {
   };
 }
 
-function processSingleUserRollover(user, rolloverDateISO, todayISO, summary, audit) {
+function processSingleUserRollover(userParam, rolloverDateISO, todayISO, summary, audit) {
+  let user = userParam;
   const userId = user.getString("id");
   const userBefore = snapshotUserRecord(user);
   const rolloverLog = findDailyLogByUserAndDate(userId, rolloverDateISO);
 
   let completedForRollover = false;
+  let logSaveTriggeredHook = false;
   if (rolloverLog) {
     const rolloverLogBefore = snapshotDailyLogRecord(rolloverLog);
     const eligibleForCompletion = isEligibleForCompletion(rolloverLog);
@@ -315,6 +354,10 @@ function processSingleUserRollover(user, rolloverDateISO, todayISO, summary, aud
     if (!rolloverLog.getBool("completed") && eligibleForCompletion) {
       rolloverLog.set("completed", true);
       $app.save(rolloverLog);
+      // The daily_logs after-update hook increments user.completed_days in the
+      // database. Our in-memory `user` is now stale; the reload below picks up
+      // the incremented value so we do not clobber it when we next save `user`.
+      logSaveTriggeredHook = true;
       summary.autoCompletedLogs += 1;
       const rolloverLogAfter = snapshotDailyLogRecord(rolloverLog);
       audit.recordChange({
@@ -329,6 +372,13 @@ function processSingleUserRollover(user, rolloverDateISO, todayISO, summary, aud
     }
 
     completedForRollover = rolloverLog.getBool("completed") || eligibleForCompletion;
+  }
+
+  if (logSaveTriggeredHook) {
+    const refreshed = $app.findRecordById("users", userId);
+    if (refreshed) {
+      user = refreshed;
+    }
   }
 
   if (completedForRollover) {
@@ -346,23 +396,22 @@ function processSingleUserRollover(user, rolloverDateISO, todayISO, summary, aud
       afterData: userAfter,
     });
 
-    const beforeTodayLog = snapshotDailyLogRecord(findDailyLogByUserAndDate(userId, todayISO));
-    syncCurrentDayLogDayNumber(userId, todayISO);
-    const afterTodayLog = snapshotDailyLogRecord(findDailyLogByUserAndDate(userId, todayISO));
-    if (JSON.stringify(beforeTodayLog ?? {}) !== JSON.stringify(afterTodayLog ?? {})) {
+    const todayLog = findDailyLogByUserAndDate(userId, todayISO);
+    const syncResult = syncCurrentDayLogDayNumberDetails(userId, todayISO, todayLog);
+    if (syncResult.changed) {
       audit.recordChange({
         userId,
         changeType: "sync_current_day_number",
         entityType: "daily_log",
-        entityId: afterTodayLog?.id || beforeTodayLog?.id || "",
+        entityId: syncResult.afterData?.id || syncResult.beforeData?.id || "",
         effectiveDate: todayISO,
-        beforeData: beforeTodayLog,
-        afterData: afterTodayLog,
+        beforeData: syncResult.beforeData,
+        afterData: syncResult.afterData,
       });
     }
 
     summary.progressedUsers += 1;
-    return;
+    return user;
   }
 
   const missed = ensureMissedDayLog(userId, rolloverDateISO);
@@ -395,22 +444,22 @@ function processSingleUserRollover(user, rolloverDateISO, todayISO, summary, aud
     afterData: userAfterReset,
   });
 
-  const beforeTodayLog = snapshotDailyLogRecord(findDailyLogByUserAndDate(userId, todayISO));
-  syncCurrentDayLogDayNumber(userId, todayISO);
-  const afterTodayLog = snapshotDailyLogRecord(findDailyLogByUserAndDate(userId, todayISO));
-  if (JSON.stringify(beforeTodayLog ?? {}) !== JSON.stringify(afterTodayLog ?? {})) {
+  const todayLog = findDailyLogByUserAndDate(userId, todayISO);
+  const syncResult = syncCurrentDayLogDayNumberDetails(userId, todayISO, todayLog);
+  if (syncResult.changed) {
     audit.recordChange({
       userId,
       changeType: "sync_current_day_number",
       entityType: "daily_log",
-      entityId: afterTodayLog?.id || beforeTodayLog?.id || "",
+      entityId: syncResult.afterData?.id || syncResult.beforeData?.id || "",
       effectiveDate: todayISO,
-      beforeData: beforeTodayLog,
-      afterData: afterTodayLog,
+      beforeData: syncResult.beforeData,
+      afterData: syncResult.afterData,
     });
   }
 
   summary.resetUsers += 1;
+  return user;
 }
 
 function snapshotDailyLogRecord(log) {
@@ -565,14 +614,66 @@ function runRolloverForDate(rolloverDateISO, todayISO, options) {
   }
 
   summary.touchedRecords = audit.count();
-  summary.auditRunId = audit.persist(summary);
+  if (summary.touchedRecords > 0) {
+    summary.auditRunId = audit.persist(summary);
+  }
 
   return summary;
+}
+
+function processDueUserWithCatchup(userParam, referenceDateTime, summary, audit) {
+  const userId = userParam.getString("id");
+  let user = userParam;
+  const MAX_CATCHUP_ITERATIONS = 100;
+
+  for (let i = 0; i < MAX_CATCHUP_ITERATIONS; i += 1) {
+    const storedStr = String(user.getString("next_rollover_at_utc") || "");
+    const storedDT = parseDateTimeValue(storedStr);
+    if (!storedDT || storedDT.after(referenceDateTime)) {
+      break;
+    }
+
+    // Derive the missed rollover boundary from the STORED due timestamp,
+    // not the current wall clock, so a delayed/missed cron catches up correctly.
+    const schedule = computeUserRolloverSchedule(user, storedDT);
+    const processed = processSingleUserRollover(
+      user,
+      schedule.rolloverDateISO,
+      schedule.todayISO,
+      summary,
+      audit,
+    );
+    if (processed) {
+      user = processed;
+    }
+
+    const beforeSchedule = snapshotUserRecord(user);
+    user.set("timezone", schedule.timezoneName);
+    user.set("next_rollover_at_utc", schedule.nextRolloverAtUTC.string());
+    $app.save(user);
+    const afterSchedule = snapshotUserRecord(user);
+    if (JSON.stringify(beforeSchedule) !== JSON.stringify(afterSchedule)) {
+      audit.recordChange({
+        userId,
+        changeType: "advance_user_rollover_schedule",
+        entityType: "user",
+        entityId: userId,
+        effectiveDate: schedule.todayISO,
+        beforeData: beforeSchedule,
+        afterData: afterSchedule,
+      });
+      summary.advancedSchedules += 1;
+    }
+  }
+
+  return user;
 }
 
 function runScheduledRollover(options) {
   const opts = options && typeof options === "object" ? options : {};
   const auditTrigger = String(opts.trigger || "cron");
+  const initializeMissingSchedules = !!opts.initializeMissingSchedules;
+  const batchSize = Math.max(1, Number(opts.pageSize) || 500);
   const currentDateTime = nowDateTime();
   const nowUTC = currentDateTime.time().utc();
   const nowUTCDateISO = nowUTC.format("2006-01-02");
@@ -587,7 +688,6 @@ function runScheduledRollover(options) {
     });
   }
 
-  const audit = createRolloverAuditRecorder(nowUTCDateISO, nowUTCDateISO, `${auditTrigger}_scheduled`);
   const summary = {
     date: nowUTCDateISO,
     trigger: `${auditTrigger}_scheduled`,
@@ -607,83 +707,73 @@ function runScheduledRollover(options) {
 
   const nowString = currentDateTime.string();
   const escapedNowString = String(nowString).replace(/"/g, "\\\"");
+  const dueFilter = `next_rollover_at_utc != \"\" && next_rollover_at_utc <= \"${escapedNowString}\"`;
+  const missingFilter = `next_rollover_at_utc = \"\"`;
+
+  // Single-batch query: we process records directly (no re-fetch by id) and
+  // any user whose schedule advances beyond `now` naturally drops out of
+  // subsequent ticks. Batch cap protects against unbounded runs; leftover
+  // users get picked up on the next 5-minute cron.
   const dueUsers = $app.findRecordsByFilter(
     "users",
-    `next_rollover_at_utc != \"\" && next_rollover_at_utc <= \"${escapedNowString}\"`,
-    "",
-    5000,
+    dueFilter,
+    "next_rollover_at_utc,id",
+    batchSize,
     0,
   );
-
   summary.dueUsers = dueUsers.length;
 
-  for (const user of dueUsers) {
-    if (!user) continue;
+  const missingUsers = initializeMissingSchedules
+    ? $app.findRecordsByFilter("users", missingFilter, "created,id", batchSize, 0)
+    : [];
+
+  if (dueUsers.length === 0 && missingUsers.length === 0) {
+    return summary;
+  }
+
+  const audit = createRolloverAuditRecorder(nowUTCDateISO, nowUTCDateISO, `${auditTrigger}_scheduled`);
+
+  for (const dueUser of dueUsers) {
+    if (!dueUser) continue;
     summary.totalUsers += 1;
-
-    const userId = user.getString("id");
+    const userId = dueUser.getString("id");
     try {
-      const schedule = computeUserRolloverSchedule(user, currentDateTime);
-      processSingleUserRollover(user, schedule.rolloverDateISO, schedule.todayISO, summary, audit);
-
-      const beforeSchedule = snapshotUserRecord(user);
-      user.set("timezone", schedule.timezoneName);
-      user.set("next_rollover_at_utc", schedule.nextRolloverAtUTC.string());
-      $app.save(user);
-      const afterSchedule = snapshotUserRecord(user);
-      audit.recordChange({
-        userId,
-        changeType: "advance_user_rollover_schedule",
-        entityType: "user",
-        entityId: userId,
-        effectiveDate: schedule.todayISO,
-        beforeData: beforeSchedule,
-        afterData: afterSchedule,
-      });
-      summary.advancedSchedules += 1;
+      processDueUserWithCatchup(dueUser, currentDateTime, summary, audit);
     } catch (err) {
       summary.failedUsers += 1;
       summary.failures.push({
         userId,
-        email: user.getString("email"),
-        currentDay: user.getInt("current_day"),
-        completedDays: user.getInt("completed_days"),
+        email: dueUser.getString("email"),
+        currentDay: dueUser.getInt("current_day"),
+        completedDays: dueUser.getInt("completed_days"),
         error: err ? String(err) : "Unknown error",
       });
     }
   }
 
-  // Backfill missing schedule pointers for users that predate the new fields.
-  const usersWithMissingSchedule = $app.findRecordsByFilter(
-    "users",
-    `next_rollover_at_utc = \"\"`,
-    "",
-    5000,
-    0,
-  );
-
-  for (const user of usersWithMissingSchedule) {
-    if (!user) continue;
+  for (const missingUser of missingUsers) {
+    if (!missingUser) continue;
+    const userId = missingUser.getString("id");
     try {
-      const schedule = computeUserRolloverSchedule(user, currentDateTime);
-      user.set("timezone", schedule.timezoneName);
-      user.set("next_rollover_at_utc", schedule.nextRolloverAtUTC.string());
-      $app.save(user);
-      summary.initializedSchedules += 1;
+      if (initializeUserRolloverSchedule(missingUser, currentDateTime)) {
+        summary.initializedSchedules += 1;
+      }
     } catch (err) {
       summary.failedUsers += 1;
       summary.failures.push({
-        userId: user.getString("id"),
-        email: user.getString("email"),
-        currentDay: user.getInt("current_day"),
-        completedDays: user.getInt("completed_days"),
+        userId,
+        email: missingUser.getString("email"),
+        currentDay: missingUser.getInt("current_day"),
+        completedDays: missingUser.getInt("completed_days"),
         error: err ? String(err) : "Unknown error",
       });
     }
   }
 
   summary.touchedRecords = audit.count();
-  summary.auditRunId = audit.persist(summary);
+  if (summary.touchedRecords > 0) {
+    summary.auditRunId = audit.persist(summary);
+  }
 
   return summary;
 }
@@ -697,6 +787,7 @@ module.exports = {
   findDailyLogByUserAndDate,
   hookLog,
   hookWarn,
+  initializeUserRolloverSchedule,
   incrementUserCompletedDays,
   isEligibleForCompletion,
   normalizeCompletedDays,
