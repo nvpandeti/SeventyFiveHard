@@ -1,10 +1,12 @@
 /// <reference path="../pb_data/types.d.ts" />
 
+/** @param {unknown} value */
 function normalizeTimezone(value) {
   const text = String(value ?? "").trim();
   return text || "America/New_York";
 }
 
+/** @param {string} timezoneName */
 function computeNextRolloverAtUTC(timezoneName) {
   const tzName = normalizeTimezone(timezoneName);
   const tz = new Timezone(tzName);
