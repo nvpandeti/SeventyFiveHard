@@ -130,17 +130,9 @@ onRecordAfterUpdateSuccess((e) => {
   hooks.incrementUserCompletedDays(userId);
 }, "daily_logs");
 
-cronAdd("rollover-challenge-progress", "0 0 * * *", () => {
+cronAdd("rollover-challenge-progress", "*/5 * * * *", () => {
   const hooks = require(`${__hooks}/75hard.shared.js`);
-
-  const now = new Date();
-  const todayDate = new Date(now);
-  const yesterdayDate = new Date(now);
-  yesterdayDate.setDate(yesterdayDate.getDate() - 1);
-
-  const today = hooks.formatDate(todayDate);
-  const yesterday = hooks.formatDate(yesterdayDate);
-  const summary = hooks.runRolloverForDate(yesterday, today);
+  const summary = hooks.runScheduledRollover({ trigger: "cron" });
   if (summary.failedUsers > 0) {
     console.error("[rollover-challenge-progress] Completed with failures", summary);
   }
@@ -152,21 +144,13 @@ routerAdd(
   (e) => {
     try {
       const hooks = require(`${__hooks}/75hard.shared.js`);
-
-      const now = new Date();
-      const todayDate = new Date(now);
-      const rolloverDateObj = new Date(now);
-      rolloverDateObj.setDate(rolloverDateObj.getDate() - 1);
-
-      const today = hooks.formatDate(todayDate);
-      const rolloverDate = hooks.formatDate(rolloverDateObj);
-      const summary = hooks.runRolloverForDate(rolloverDate, today);
+      const summary = hooks.runScheduledRollover({ trigger: "manual_admin" });
       const ok = summary.failedUsers === 0;
       return e.json(ok ? 200 : 207, {
         ok,
         message: ok
-          ? "Manual rollover executed."
-          : "Manual rollover executed with some user failures.",
+          ? "Manual scheduled rollover executed."
+          : "Manual scheduled rollover executed with some user failures.",
         summary,
       });
     } catch (err) {

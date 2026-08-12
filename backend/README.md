@@ -241,3 +241,35 @@ From the Admin UI → **Collections → users → + New record**. Set an
 email and password for each friend and share the credentials. They
 install **Expo Go**, scan the QR code from `npx expo start --tunnel`,
 and sign in.
+
+## 7. Rollover audit history
+
+Rollover runs are now persisted for historical inspection in two
+collections:
+
+1. `rollover_runs` (one row per rollover execution)
+    - `trigger`: `cron` or `manual_admin`
+    - `rollover_date`: the day being evaluated
+    - `today_date`: the day users are moved into
+    - `summary`: final run summary payload
+    - `touched_records_count`: number of detailed change rows captured
+    - `metadata.capturedAtISO`: capture timestamp
+2. `rollover_run_changes` (one row per touched entity change)
+    - `rollover_run`: relation to the parent run
+    - `user_id`: affected user
+    - `change_type`: e.g. `auto_complete_log`, `progress_user`,
+       `create_missed_log`, `reset_user`, `sync_current_day_number`
+    - `entity_type` + `entity_id`: changed model identity
+    - `effective_date`: logical date for this change
+    - `before_data`, `after_data`, `delta`: value-level diff payloads
+
+### How to inspect
+
+- In Admin UI:
+   - Open `rollover_runs`, sort by `created` descending.
+   - Open one run and use the `rollover_run_changes` relation to inspect
+      all touched records and before/after deltas.
+- Via API:
+   - List recent runs: `/api/collections/rollover_runs/records?sort=-created`
+   - Fetch change rows for one run:
+      `/api/collections/rollover_run_changes/records?filter=rollover_run%3D%22<RUN_ID>%22&sort=created`
